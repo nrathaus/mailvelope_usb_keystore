@@ -23,6 +23,7 @@ import {gpgme} from '../lib/browser.runtime';
 import * as mveloKeyServer from '../modules/mveloKeyServer';
 import * as autocrypt from '../modules/autocryptWrapper';
 import {denyCampaign, isCampaignCurrentlyGranted, grantCampaign, recordOnboardingStep, ADD_KEY, BEGIN, ONBOARDING_CAMPAIGN} from '../lib/analytics';
+import {registerUsbHandlers} from '../modules/usb/handlers';
 
 export default class AppController extends SubController {
   constructor(port) {
@@ -81,6 +82,7 @@ export default class AppController extends SubController {
     this.on('grant-consent', ({campaignId}) => this.grantCampaignConsent(campaignId));
     this.on('deny-consent', ({campaignId}) => denyCampaign(campaignId));
     this.on('get-consent', ({campaignId}) => isCampaignCurrentlyGranted(campaignId));
+    registerUsbHandlers(this);
   }
 
   async updatePreferences(options) {

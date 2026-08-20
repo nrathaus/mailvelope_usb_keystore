@@ -8,6 +8,7 @@ import PropTypes from 'prop-types';
 import {Link} from 'react-router-dom';
 import * as l10n from '../../lib/l10n';
 import GnupgFooter from './GnupgFooter';
+import UsbSetupCard from '../../components/usb/UsbSetupCard';
 
 import './KeyringSetup.scss';
 
@@ -60,6 +61,7 @@ export default function KeyringSetup({generatePath, importPath, showNoKeypairAle
             </div>
           </div>
         </div>
+        <UsbSetupCard />
       </div>
       {showGnupgFooter && (
         <GnupgFooter heading={l10n.map.gnupg_connection} body={l10n.map.keyring_available_settings} />

@@ -116,6 +116,12 @@ export function initSession() {
   cache = new PwdMap();
 }
 
+/* Purge every cached passphrase and unlocked key. Used by the USB keystore when the
+   device is removed, so no decrypted key material outlives it. */
+export function clear() {
+  cache?.clear();
+}
+
 function clearIntervals() {
   // clear interval functions
   cache.forEach(entry => clearInterval(entry.tlTimer));

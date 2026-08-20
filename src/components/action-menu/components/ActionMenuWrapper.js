@@ -52,7 +52,7 @@ class ActionMenuWrapper extends Component {
     if (!this.state.isSetupDone) {
       actionMenuContent = <ActionMenuSetup onMenuItemClickHandler={e => this.onMenuItemClick(e)} />;
     } else {
-      actionMenuContent = <ActionMenuBase onMenuItemClickHandler={e => this.onMenuItemClick(e)} />;
+      actionMenuContent = <ActionMenuBase onMenuItemClickHandler={e => this.onMenuItemClick(e)} port={this.port} />;
     }
 
     return (

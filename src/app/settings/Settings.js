@@ -9,6 +9,7 @@ import PropTypes from 'prop-types';
 import {NavPill} from '../util/util';
 import * as l10n from '../../lib/l10n';
 import Notifications from '../../components/util/Notifications';
+import {strings as usbStrings} from '../../modules/usb/strings';
 
 import General from './General';
 import Security from './Security';
@@ -18,6 +19,7 @@ import SecurityLog from './SecurityLog';
 import KeyServer from './keyserver';
 import Provider from './Provider';
 import Analytics from './Analytics';
+import KeyStorageSettings from '../../components/usb/KeyStorageSettings';
 
 l10n.register([
   'settings_analytics',
@@ -62,6 +64,7 @@ export default class Settings extends React.Component {
                       <NavPill to="/settings/security-log">{l10n.map.settings_security_log}</NavPill>
                       <NavPill to="/settings/key-server">{l10n.map.settings_keyserver}</NavPill>
                       <NavPill to="/settings/analytics">{l10n.map.settings_analytics}</NavPill>
+                      <NavPill to="/settings/key-storage">{usbStrings.settings_tab}</NavPill>
                     </div>
                   </div>
                 </div>
@@ -74,6 +77,7 @@ export default class Settings extends React.Component {
                   <Route path="/settings/security-log" component={SecurityLog} />
                   <Route path="/settings/key-server" render={() => <KeyServer prefs={this.props.prefs} onChangePrefs={this.props.onChangePrefs} />} />
                   <Route path="/settings/analytics" component={Analytics} />
+                  <Route path="/settings/key-storage" render={() => <KeyStorageSettings onSetNotification={this.handleSetNotification} />} />
                 </div>
               </div>
             </div>

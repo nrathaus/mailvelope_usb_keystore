@@ -20,6 +20,7 @@ import Spinner from '../../components/util/Spinner';
 import KeyringSelect from './components/KeyringSelect';
 import KeyringBreadcrumb from './components/KeyringBreadcrumb';
 import Notifications from '../../components/util/Notifications';
+import UsbStatusBadge from '../../components/usb/UsbStatusBadge';
 
 l10n.register([
   'keyring_generate_key',
@@ -34,6 +35,7 @@ function PageTitle({children}) {
   return (
     <div className="card-title d-flex flex-wrap align-items-center">
       <h1 className="flex-shrink-0 mr-auto">{children}</h1>
+      <UsbStatusBadge />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {getById as getKeyringById} from '../modules/keyring';
 import {isCached} from '../modules/pwdCache';
 import {readMessage, decryptSyncMessage, encryptSyncMessage} from '../modules/pgpModel';
 import {equalKey} from '../modules/key';
+import {isRemoteKeyStorageAllowed} from '../modules/usb/guard';
 
 export class SyncController extends SubController {
   constructor(port) {
@@ -42,6 +43,9 @@ export class SyncController extends SubController {
    * @param {String} [options.password] - password for options.key
    */
   async triggerSync(options) {
+    if (!isRemoteKeyStorageAllowed()) {
+      return;
+    }
     options = options || {};
     if (this.syncRunning) {
       this.repeatSync = options;

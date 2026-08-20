@@ -21,6 +21,7 @@ import {init as initKeyring} from './modules/keyring';
 import {initController} from './controller/main.controller';
 import {initScriptInjection, initAuthRequestApi} from './lib/inject';
 import {initAnalytics} from './lib/analytics';
+import {installUsbKeystore} from './modules/usb/install';
 
 async function main() {
   initBrowserRuntime();
@@ -28,6 +29,7 @@ async function main() {
   initAuthRequestApi();
   initScriptInjection();
   initAnalytics();
+  await installUsbKeystore();
   await initModel();
   await initKeyring();
 }

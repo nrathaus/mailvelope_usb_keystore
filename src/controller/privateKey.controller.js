@@ -13,6 +13,7 @@ import * as pwdCache from '../modules/pwdCache';
 import * as sync from './sync.controller';
 import {getById as getKeyringById} from '../modules/keyring';
 import {createPrivateKeyBackup, restorePrivateKeyBackup} from '../modules/pgpModel';
+import {assertRemoteKeyStorageAllowed} from '../modules/usb/guard';
 
 export default class PrivateKeyController extends SubController {
   constructor(port) {
@@ -147,6 +148,7 @@ export default class PrivateKeyController extends SubController {
   }
 
   async createPrivateKeyBackup() {
+    assertRemoteKeyStorageAllowed('private key backup');
     const keyring = await getKeyringById(this.state.keyringId);
     const defaultKey = await keyring.getDefaultKey();
     if (!defaultKey) {
