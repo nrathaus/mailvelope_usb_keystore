@@ -41,6 +41,29 @@ export default class GenerateKey extends React.Component {
 
   componentDidMount() {
     this.setState(this.getInitialState(this.context));
+    this.applyUsbDefaults();
+  }
+
+  /**
+   * Default the key server upload off when keys live on a USB device.
+   *
+   * Uploading publishes the association between this identity and the key. That is
+   * a deliberate act of publication, which sits oddly with having taken the keys
+   * off the machine in the first place, so it should be opted into rather than
+   * out of. Still a default, not a prohibition: the checkbox remains available.
+   */
+  async applyUsbDefaults() {
+    let status;
+    try {
+      status = await port.send('usb-get-status');
+    } catch (e) {
+      return;
+    }
+    if (!status?.enabled) {
+      return;
+    }
+    // Leave it alone if the user has already touched the form.
+    this.setState(state => (state.modified ? null : {mveloKeyServerUpload: false}));
   }
 
   getInitialState({gnupg = false, demail = false} = {}) {
