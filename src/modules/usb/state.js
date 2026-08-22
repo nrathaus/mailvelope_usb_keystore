@@ -83,6 +83,31 @@ export async function setConfig(config) {
   await chrome.storage.local.set({[USB_CONFIG_KEY]: config});
 }
 
+/**
+ * Record that the device has held a private key at some point.
+ *
+ * Needed because a detached device cannot be asked. Without it, "configured but
+ * detached" is indistinguishable from "configured and never used", so the toolbar
+ * menu cannot tell whether to offer onboarding. A boolean carries no key material,
+ * so it belongs in the local config.
+ * @param {Boolean} hadKeys
+ */
+export async function setHadKeys(hadKeys) {
+  const config = await getConfig();
+  if (!config || config.hadKeys === hadKeys) {
+    return;
+  }
+  await setConfig({...config, hadKeys});
+}
+
+/**
+ * Whether the configured device is known to have held a private key.
+ * @return {Promise<Boolean>}
+ */
+export async function hadKeys() {
+  return Boolean((await getConfig())?.hadKeys);
+}
+
 export async function clearConfig() {
   await chrome.storage.local.remove(USB_CONFIG_KEY);
 }
@@ -190,19 +215,35 @@ export async function reload() {
 }
 
 /**
+ * Register the periodic-probe alarm listener.
+ *
+ * MUST be called during the synchronous evaluation of the background script, not
+ * from init(). An MV3 service worker only receives events whose listeners were
+ * registered in that first turn; a listener added after an await is silently never
+ * called on a woken worker, so the periodic presence check would never run and the
+ * device could only be noticed on startup or by an explicit user action.
+ *
+ * Separate from init() because init() is async by nature -- it has to read the
+ * device -- so anything after its first await is already too late.
+ */
+export function registerProbeListener() {
+  if (!chrome.alarms?.onAlarm) {
+    return;
+  }
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === PROBE_ALARM) {
+      probe().catch(e => console.log('USB keystore probe failed', e));
+    }
+  });
+}
+
+/**
  * Initialise the state machine: select a backend, take a first reading, and start
- * the periodic probe.
+ * the periodic probe. The listener itself is registered by registerProbeListener().
  */
 export async function init() {
   backend = selectBackend();
   await probe();
-  if (chrome.alarms) {
-    chrome.alarms.create(PROBE_ALARM, {periodInMinutes: PROBE_PERIOD_MINUTES});
-    chrome.alarms.onAlarm.addListener(alarm => {
-      if (alarm.name === PROBE_ALARM) {
-        probe().catch(e => console.log('USB keystore probe failed', e));
-      }
-    });
-  }
+  chrome.alarms?.create(PROBE_ALARM, {periodInMinutes: PROBE_PERIOD_MINUTES});
   return getStatus();
 }

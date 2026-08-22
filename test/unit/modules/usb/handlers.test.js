@@ -65,9 +65,14 @@ describe('usb/handlers', () => {
     ]);
   });
 
-  it('answers usb-get-status from the state machine', () => {
-    state.getStatus.mockReturnValue({state: 'READY', enabled: true});
-    expect(controller.handlers.get('usb-get-status')()).toEqual({state: 'READY', enabled: true});
+  // Answering from cache would leave a page showing a device that has since gone
+  // away, and the periodic alarm cannot be relied on as the only trigger.
+  it('probes the device on usb-get-status rather than answering from cache', async () => {
+    provision.reprobe.mockResolvedValue({state: 'ABSENT', enabled: true});
+    const result = await controller.handlers.get('usb-get-status')();
+    expect(provision.reprobe).toHaveBeenCalled();
+    expect(state.getStatus).not.toHaveBeenCalled();
+    expect(result).toEqual({state: 'ABSENT', enabled: true});
   });
 
   it('routes each action to provision', async () => {

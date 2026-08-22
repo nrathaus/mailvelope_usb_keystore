@@ -30,6 +30,10 @@ import {clear as clearPwdCache} from '../pwdCache';
 let installed = false;
 const original = {};
 
+// Registered here, at module scope, because background.js imports this module during
+// its synchronous evaluation. See registerProbeListener for why that timing matters.
+state.registerProbeListener();
+
 /**
  * Read a device-backed value.
  * @param {Object} route - result of router.classify()
@@ -82,7 +86,14 @@ async function wrappedGet(id) {
   }
   const route = router.classify(id);
   if (route.target === router.TARGET.DEVICE) {
-    return readDevice(route);
+    const value = await readDevice(route);
+    // Seeing keys on the device is as good a signal as writing them, and a better
+    // one in practice: keys are written rarely but read on every startup, so a
+    // profile set up before this flag existed would otherwise never record it.
+    if (id.endsWith('.privateKeys') && value?.length) {
+      await state.setHadKeys(true);
+    }
+    return value;
   }
   if (route.target === router.TARGET.SPLIT) {
     const local = await original.get(id);
@@ -109,7 +120,13 @@ async function wrappedSet(id, value) {
   }
   const route = router.classify(id);
   if (route.target === router.TARGET.DEVICE) {
-    return writeDevice(route, value);
+    await writeDevice(route, value);
+    // Remember that this device has held a private key, so a later detached
+    // session can tell "keys are on the device" from "never set up".
+    if (id.endsWith('.privateKeys') && value?.length) {
+      await state.setHadKeys(true);
+    }
+    return;
   }
   if (route.target === router.TARGET.SPLIT) {
     const {device, local} = router.splitAttributes(value);
@@ -209,10 +226,42 @@ async function purgeInMemoryKeyMaterial() {
   }
 }
 
+/**
+ * Load the keyrings back from the device once it is reachable again.
+ *
+ * Reads degrade to "empty" while the device is away, so every keyring in memory is
+ * blank by the time it returns. Without this the warning would clear while the UI
+ * still showed no keys, which reads as data loss.
+ *
+ * Raced against a timeout for the same reason as the purge: at startup this runs
+ * before keyring initialisation, and init() loads from the device itself, so there
+ * is nothing to do here yet.
+ */
+async function reloadKeyringsFromDevice() {
+  try {
+    const keyrings = await Promise.race([
+      getAllKeyrings(),
+      new Promise(resolve => setTimeout(() => resolve(null), 2000))
+    ]);
+    if (!keyrings) {
+      return;
+    }
+    for (const keyring of keyrings) {
+      keyring.keystore.clear();
+      await keyring.keystore.load();
+    }
+  } catch (e) {
+    console.log('USB keystore: reloading keyrings failed', e);
+  }
+}
+
 function onStateChange(next, previous) {
   refreshBadge();
   if (next !== USB_STATE.READY && previous === USB_STATE.READY) {
     purgeInMemoryKeyMaterial();
+  }
+  if (next === USB_STATE.READY && previous !== USB_STATE.READY) {
+    reloadKeyringsFromDevice();
   }
 }
 

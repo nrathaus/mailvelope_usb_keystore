@@ -16,7 +16,10 @@ import * as provision from './provision';
  * @param {SubController} controller
  */
 export function registerUsbHandlers(controller) {
-  controller.on('usb-get-status', () => state.getStatus());
+  // Probe rather than answer from cache: a view opening or refreshing is a natural
+  // moment to re-check, and it means the UI self-corrects even if the periodic
+  // alarm has not fired. One small file read.
+  controller.on('usb-get-status', () => provision.reprobe());
   controller.on('usb-probe', () => provision.reprobe());
   controller.on('usb-provision', ({label} = {}) => provision.provision({label}));
   controller.on('usb-disable', () => provision.disable());

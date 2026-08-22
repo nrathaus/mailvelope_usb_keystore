@@ -21,6 +21,7 @@ import KeyringSelect from './components/KeyringSelect';
 import KeyringBreadcrumb from './components/KeyringBreadcrumb';
 import Notifications from '../../components/util/Notifications';
 import UsbStatusBadge from '../../components/usb/UsbStatusBadge';
+import {subscribeStatus} from '../../components/usb/usbStatus';
 
 l10n.register([
   'keyring_generate_key',
@@ -80,6 +81,25 @@ class Keyring extends React.Component {
   async componentDidMount() {
     await this.initActiveKeyring();
     await this.loadKeyring();
+    // The background reloads the keystore when the device returns, so refresh the
+    // list rather than leaving the page showing the empty keyring it read while
+    // the device was away.
+    // Reload on any change of device state, in both directions. Leaving READY
+    // matters as much as returning to it: the background purges its keyrings when
+    // the device goes away, so a page that does not refresh keeps listing keys it
+    // can no longer use.
+    this.unsubscribeUsb = subscribeStatus(port, status => {
+      const next = status?.state;
+      const changed = this.usbState !== undefined && this.usbState !== next;
+      this.usbState = next;
+      if (changed) {
+        this.loadKeyring();
+      }
+    });
+  }
+
+  componentWillUnmount() {
+    this.unsubscribeUsb?.();
   }
 
   setStateAsync(state) {

@@ -258,6 +258,67 @@ describe('usb/install storage interception', () => {
     });
   });
 
+  describe('remembering that the device has held keys', () => {
+    // A detached device cannot be asked whether it holds keys, so the answer has to
+    // be remembered. Keys are written rarely but read on every startup, so the read
+    // path is what makes this work for a profile set up before the flag existed.
+    it('records the flag when private keys are read from the device', async () => {
+      await bootReady();
+      const path = `mailvelope-keystore/keyrings/${Buffer.from(MAIN).toString('hex')}/private.asc`;
+      device[path] = PRIVATE_ARMORED;
+      await mvelo.storage.get(PRIV_KEY);
+      expect((await state.getConfig()).hadKeys).toBe(true);
+    });
+
+    it('records the flag when private keys are written', async () => {
+      await bootReady();
+      await mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED]);
+      expect((await state.getConfig()).hadKeys).toBe(true);
+    });
+
+    it('does not claim keys for an empty keyring', async () => {
+      await bootReady();
+      await mvelo.storage.set(PRIV_KEY, []);
+      await mvelo.storage.get(PRIV_KEY);
+      expect((await state.getConfig()).hadKeys).toBeUndefined();
+    });
+  });
+
+  describe('reload when the device returns', () => {
+    // Reads degrade to empty while the device is away, so every keyring in memory
+    // is blank by the time it comes back. Without a reload the warning clears while
+    // the UI still shows no keys, which reads as data loss.
+    it('reloads the keyrings from the device on return to READY', async () => {
+      const {getAll} = require('../../../../src/modules/keyring');
+      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      getAll.mockResolvedValue([{keystore}]);
+      await bootReady();
+      const marker = device['mailvelope-keystore/keystore.json'];
+      delete device['mailvelope-keystore/keystore.json'];
+      await state.probe();
+      expect(state.getState()).toBe(constants.USB_STATE.ABSENT);
+      keystore.clear.mockClear();
+
+      device['mailvelope-keystore/keystore.json'] = marker;
+      await state.probe();
+      expect(state.getState()).toBe(constants.USB_STATE.READY);
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(keystore.clear).toHaveBeenCalled();
+      expect(keystore.load).toHaveBeenCalled();
+    });
+
+    it('does not reload while the device stays away', async () => {
+      const {getAll} = require('../../../../src/modules/keyring');
+      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      getAll.mockResolvedValue([{keystore}]);
+      await bootAbsent();
+      keystore.load.mockClear();
+      await state.probe();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(keystore.load).not.toHaveBeenCalled();
+    });
+  });
+
   describe('badge arbitration with uiLog', () => {
     // uiLog sets a green 'Ok' on user interaction and clears it 2s later. A clear
     // must restore the USB warning rather than blanking the toolbar.

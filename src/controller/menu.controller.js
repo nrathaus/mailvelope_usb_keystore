@@ -8,6 +8,7 @@ import {getUUID} from '../lib/util';
 import {SubController, reloadFrames, setAppDataSlot} from './sub.controller';
 import * as prefs from '../modules/prefs';
 import {hasAnyPrivateKey} from '../modules/keyring';
+import {isEnabled as usbEnabled, isUsable as usbUsable, hadKeys as usbHadKeys} from '../modules/usb/state';
 import {shouldSeeConsentDialog} from '../lib/analytics';
 
 export default class MenuController extends SubController {
@@ -59,6 +60,16 @@ export default class MenuController extends SubController {
   }
 
   async getIsSetupDone() {
+    // A configured keystore that is merely disconnected means the keys cannot be
+    // read, not that setup never happened. Reporting "not set up" here shows the
+    // onboarding menu, which invites someone whose key is safe on a detached device
+    // to generate a replacement -- the worst possible suggestion for a keystore
+    // that is deliberately the only copy.
+    if (usbEnabled() && !usbUsable()) {
+      // Only claim setup is done if the device is known to have held a key. A
+      // keystore configured but never used should still offer onboarding.
+      return {isSetupDone: await usbHadKeys()};
+    }
     return {isSetupDone: await hasAnyPrivateKey()};
   }
 
