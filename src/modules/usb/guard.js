@@ -18,7 +18,36 @@
 
 import {MvError} from '../../lib/util';
 import {USB_KEYSTORE_UNAVAILABLE} from './constants';
-import {isEnabled} from './state';
+import {isEnabled, assertUsable} from './state';
+
+/**
+ * Refuse a crypto operation when the device holding the keys is not connected.
+ *
+ * Without this the failure surfaces as "key not found", because reads degrade to an
+ * empty keyring and the lookup legitimately finds nothing. That is honest at the
+ * keyring layer and misleading at the user layer: it says the key does not exist,
+ * when the truth is that it is not reachable. For a keystore that is deliberately
+ * the only copy, "not found" is the message most likely to make someone think they
+ * have lost the key -- or generate a replacement and abandon a perfectly good one.
+ *
+ * Applied at the crypto entry points rather than in the UI so the message is right
+ * wherever the operation runs, including the editor embedded in a webmail page,
+ * which never renders Mailvelope's own status banner.
+ * @throws {MvError} with code USB_KEYSTORE_UNAVAILABLE
+ */
+export async function assertKeystoreForCrypto() {
+  if (!isEnabled()) {
+    return;
+  }
+  try {
+    await assertUsable();
+  } catch (e) {
+    throw new MvError(
+      'The USB keystore is not available. Connect the device to use your keys.',
+      USB_KEYSTORE_UNAVAILABLE
+    );
+  }
+}
 
 /**
  * Require a passphrase whenever keys live on a removable device.

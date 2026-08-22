@@ -21,6 +21,7 @@ import * as keyringSync from './keyringSync';
 import * as trustKey from './trustKey';
 import {updateKeyBinding, init as initKeyBinding} from './keyBinding';
 import {KEYSERVER_ADDRESS, COMMUNICATION, recordOnboardingStep} from '../lib/analytics';
+import {assertKeystoreForCrypto} from './usb/guard';
 
 let modelInitDone;
 export const modelInitialized = new Promise(resolve => modelInitDone = resolve);
@@ -62,6 +63,7 @@ export function initOpenPGP() {
  *   decode the body parts via the MIME parser's charset handling.
  */
 export async function decryptMessage({message, armored, keyringId, unlockKey, senderAddress, selfSigned, uiLogSource, lookupKey}) {
+  await assertKeystoreForCrypto();
   message ??= await readMessage({armoredMessage: armored});
   const encryptionKeyIds = message.getEncryptionKeyIDs();
   const keyring = await getKeyringWithPrivKey(encryptionKeyIds, keyringId);
@@ -182,6 +184,7 @@ export async function readMessage({armoredMessage, binaryMessage}) {
  * @return {Promise<String>} - armored PGP message
  */
 export async function encryptMessage({data, keyringId, unlockKey, encryptionKeyFprs, signingKeyFpr, uiLogSource, filename, noCache, allKeyrings}) {
+  await assertKeystoreForCrypto();
   const keyring = await getKeyringWithPrivKey(signingKeyFpr, keyringId, noCache);
   if (!keyring) {
     throw new MvError('No private key found', 'NO_PRIVATE_KEY_FOUND');
@@ -325,6 +328,7 @@ async function acquireSigningKeys({senderAddress, keyring, lookupKey, keyId}) {
  * @return {Promise<String>}
  */
 export async function signMessage({data, keyringId, unlockKey, signingKeyFpr}) {
+  await assertKeystoreForCrypto();
   const keyring = await getKeyringWithPrivKey(signingKeyFpr, keyringId);
   if (!keyring) {
     throw new MvError('No private key found', 'NO_PRIVATE_KEY_FOUND');
@@ -483,6 +487,7 @@ function convertChangeLog(key, changeLog, syncData) {
  * @return {String} - encrypted file as armored block or JS binary string
  */
 export async function encryptFile({plainFile, keyringId, unlockKey, encryptionKeyFprs, signingKeyFpr, uiLogSource, armor, noCache, allKeyrings}) {
+  await assertKeystoreForCrypto();
   const keyring = await getKeyringWithPrivKey(signingKeyFpr, keyringId, noCache);
   if (!keyring) {
     throw new MvError('No private key found', 'NO_PRIVATE_KEY_FOUND');
@@ -508,6 +513,7 @@ export async function encryptFile({plainFile, keyringId, unlockKey, encryptionKe
  * @return {Object<data, signatures, filename>} - data as JS binary string
  */
 export async function decryptFile({encryptedFile, unlockKey, uiLogSource}) {
+  await assertKeystoreForCrypto();
   let armoredMessage;
   let binaryMessage;
   try {

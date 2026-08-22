@@ -6,7 +6,7 @@
  * material, and generating a key with no passphrase.
  */
 
-jest.mock('../../../../src/modules/usb/state', () => ({isEnabled: jest.fn()}));
+jest.mock('../../../../src/modules/usb/state', () => ({isEnabled: jest.fn(), assertUsable: jest.fn()}));
 
 describe('usb/guard', () => {
   let guard; let state; let USB_KEYSTORE_UNAVAILABLE;
@@ -42,6 +42,35 @@ describe('usb/guard', () => {
       } catch (e) {
         expect(e.code).toBe(USB_KEYSTORE_UNAVAILABLE);
       }
+    });
+  });
+
+  describe('crypto operations', () => {
+    it('is a no-op when keys are stored locally', async () => {
+      state.isEnabled.mockReturnValue(false);
+      await expect(guard.assertKeystoreForCrypto()).resolves.toBeUndefined();
+      expect(state.assertUsable).not.toHaveBeenCalled();
+    });
+
+    it('allows the operation when the device is connected', async () => {
+      state.isEnabled.mockReturnValue(true);
+      state.assertUsable.mockResolvedValue(undefined);
+      await expect(guard.assertKeystoreForCrypto()).resolves.toBeUndefined();
+    });
+
+    // "key not found" would suggest the key is gone rather than unreachable, which
+    // for a device that is the only copy is the message most likely to make someone
+    // abandon a perfectly good key.
+    it('explains that the device is disconnected, not that the key is missing', async () => {
+      state.isEnabled.mockReturnValue(true);
+      state.assertUsable.mockRejectedValue(new Error('USB keystore is not available (ABSENT)'));
+      await expect(guard.assertKeystoreForCrypto()).rejects.toMatchObject({
+        code: USB_KEYSTORE_UNAVAILABLE,
+        message: expect.stringMatching(/Connect the device to use your keys/)
+      });
+      await expect(guard.assertKeystoreForCrypto()).rejects.not.toMatchObject({
+        message: expect.stringMatching(/not found/i)
+      });
     });
   });
 
