@@ -1,153 +1,169 @@
 # USB Keystore — Status and Handoff
 
-Re-verified 2026-08-22 from primary evidence (git, test runs, on-disk artefacts) rather than
-from recollection. That round found and fixed a destructive bug and closed three of the five
-implementation gaps — see §4. Companion to [usb-keystore-plan.md](usb-keystore-plan.md), which
-holds the design and its rationale.
+Updated 2026-08-22 after a full browser-testing session. Companion to
+[usb-keystore-plan.md](usb-keystore-plan.md), which holds the design and its rationale.
 
-Branch `feature/usb-keystore`, 2 commits ahead of `master` (`ffaa27af`):
+**Both Phase 0 unknowns are now settled and every requirement from the original ask is
+verified in a real browser.** What remains is a real USB stick, one API decision, and the
+things a tmpfs test directory structurally cannot exercise.
 
-| Commit | Contents |
+Branch `feature/usb-keystore`, 16 commits ahead of `master` (`ffaa27af`), working tree clean.
+45 files, +5,465/-30. Unit suite: **597 tests, 31 suites**. `grunt eslint` clean. All bundles
+build.
+
+The first two commits are split so that `fd2450c6` (all new files) can never conflict on a
+rebase and only `6a5330e7` needs attention. That split has since been diluted — later fixes
+touched `keyring.js`, `pgpModel.js`, `menu.controller.js`, `Keyring.js` and `GenerateKey.js` —
+so the hook footprint is now larger than the original +31/-2. Still worth keeping new-file and
+hook-site changes in separate commits going forward.
+
+## 1. Settled: the two Phase 0 questions
+
+**An FSA `FileSystemDirectoryHandle` stored in IndexedDB by the app page IS usable from the MV3
+service worker.** Proven by provisioning writing `/tmp/mailvelope-keystore/keystore.json` from
+the background using a handle the page stored. **The planned offscreen-document fallback is not
+needed — do not build it.**
+
+**A `readwrite` grant CAN survive a browser restart**, if the user takes Chrome's persistent
+option in the permission prompt ("allow on every visit" or similar). Confirmed by quitting and
+reopening Chromium and finding the state still `READY`.
+
+It does **not** survive an extension *reload*, which matters only during development. Because
+that is the common case while working on this, `Reconnect` re-prompts for the stored handle
+(one dialog) rather than reopening the directory picker.
+
+## 2. Verified in a real browser
+
+Chromium `151.0.7922.173`, native via pacman — deliberately not flatpak, whose portal sandbox
+can hide `/run/media/…`. Extension ID `ifmmgibjjcicnmfdkgbjbnkebofjdabc`, loaded unpacked from
+`build/chrome`. Test keystore on `/tmp`, `keystoreId 431ae6d3…`.
+
+| Requirement | Evidence |
 |---|---|
-| `fd2450c6` | Add USB-resident keystore modules, UI and tests — 19 new files, +2,874 |
-| `6a5330e7` | Wire the USB keystore into existing entry points — 11 files, +31/-2 |
+| Detect device presence and file accessibility | all states reached: `READY`, `ABSENT`, `PERMISSION_REQUIRED`, `WRONG_DEVICE` |
+| Note when the device is unavailable | red `!` badge, amber banner, key list clears, all unprompted within the probe interval |
+| Refuse to operate without the device | encryption refused with "The USB keystore is not available. Connect the device to use your keys." |
+| **No crypto stored anywhere but the device** | a real key generated onto the device: `private.asc` 6,825 bytes / 1 block, `attributes.json` holding `default_key`. Profile grep for `BEGIN PGP` clean throughout; zero occurrences of `default_key` or the key fingerprint locally |
+| Offer to add a keystore when absent | setup card plus the Key Storage settings page |
+| Atomic writes | `.bak` rotation observed against the real File System Access API, not just the fake |
+| Recovery | key returns on its own after reconnect, via the periodic probe |
 
-Split so the first can never conflict on a rebase onto upstream (all new paths) and only the
-second needs attention. Keep that split. **Uncommitted work from 2026-08-22 sits on top** (§4);
-the hook footprint has grown beyond +31/-2 because `keyring.js` is now touched.
+## 3. Nine bugs found by running it
 
-17 source files (11 in `src/modules/usb`, 6 in `src/components/usb`) and 4 test files.
+None were caught by 597 passing tests or by review. Recording them because the ratio stayed
+roughly constant across the session, which suggests more remain.
 
-## 1. Verified — automated and reproducible
+1. **Destructive read.** A read that threw when the device was absent propagated into
+   `init()`'s catch, which *deletes the keyring from the attribute map*. Reads now degrade to
+   an empty keyring; writes still fail closed.
+2. **Destructive write, same consequence.** `sanitizeKeyring()` writes the keyring back, and
+   that write fails when the device is absent — reaching the same deletion by another route.
+   Now deferred until the device is attached.
+3. **No reload on return.** Nothing re-read the device when it came back, so the warning
+   cleared while the UI still showed no keys — indistinguishable from data loss.
+4. **Stale key list.** The keyring page only refreshed when the device returned, not when it
+   went away, so it kept listing keys it could no longer use.
+5. **The adopt flag defeated by a click event.** `onClick={this.handleChooseDirectory}` passed
+   React's event into a parameter named `adopt`, making it truthy on every pick and silently
+   disabling the identity guard added hours earlier. Now strictly coerced, in the component
+   *and* in the background, which is the actual security boundary.
+6. **The periodic probe never ran.** Its alarm listener was registered inside `state.init()`
+   after an `await`. An MV3 service worker only receives events whose listeners were added
+   during the initial synchronous evaluation of the script, so removal was only ever noticed at
+   startup or when the user forced a check. Now registered at module scope in `install.js`.
+   **No test can catch this** — jest's `chrome.alarms` mock accepts a late listener happily.
+7. **"key not found" instead of "device disconnected."** Honest at the keyring layer, badly
+   misleading at the user layer: for a keystore that is the only copy, it is the message most
+   likely to make someone believe the key is gone, or generate a replacement.
+8. **"Get started" in the toolbar menu** whenever the device was detached, inviting a user
+   whose key was safe on the device to generate a replacement.
+9. **Nested keystore.** Selecting the `mailvelope-keystore` folder itself — the only folder a
+   user can actually see when reconnecting — created a second keystore inside the first, and
+   provisioning silently minted a new identity, orphaning the original device.
 
-| What | Evidence |
-|---|---|
-| Unit tests | 519 tests, 26 suites, 0 failures (`jest --selectProjects unit`) |
-| No regression | count includes every pre-existing suite |
-| Router enforcement | `router.test.js`, 20 assertions: classification, hex encoding, attribute split/merge, leak safety net, serialization |
-| Availability state machine | `state.test.js`, 21 assertions against a fake backend: every transition, `assertUsable` re-probe semantics, listeners, recovery to READY |
-| Storage interception | `install.test.js`, 19 assertions: device vs local routing, attribute splitting, fail-closed writes, degraded reads, leak block, purge on device loss, badge arbitration |
-| **Requirement 3 as a test** | `install.test.js` "storage audit": after a scripted session, no armored key and no crypto attribute field (`default_key`, `primary_key`, `sync_data`, `key_binding`) appears in local storage — and it is all on the device instead |
-| Guards | `guard.test.js`, 10 assertions: remote-upload refusal, passphrase requirement, error codes |
-| GnuPG exclusion | 3 assertions in `keyring.test.js`, proven non-vacuous by reverting the production change and watching them fail |
-| Lint | `grunt eslint` exits `Done.` |
-| Compiles | app, background and all 11 component webpack bundles build |
-| No SW-illegal code | background bundle emits no extra chunks and contains no `importScripts`, so no dynamic-import splitting survived |
+### The pattern worth remembering
 
-## 2. Verified — runtime, from on-disk artefacts
+Bugs 1, 2, 4, 7 and 8 are all the same mistake: **an unreadable keystore being treated as an
+empty one.** That is the inherent cost of making reads degrade to empty rather than throw —
+which was the right call, since throwing deleted the keyring registry — but it pushes the
+burden onto every consumer that asks "do I have keys?". An audit fixed the known cases;
+`hasUsablePrivateKey`, the onboarding flow and the editor's recipient lookup are where to look
+next.
 
-| What | Evidence |
-|---|---|
-| **An FSA handle from IndexedDB works in the MV3 service worker** | `/tmp/mailvelope-keystore/keystore.json` exists (`keystoreId 431ae6d3…`, version 1, label `tmp`), written by `provision()` in the background using a handle the app page stored in IndexedDB. Build timestamp 17:42 precedes the file's 17:53, so this was current code. **The planned offscreen-document fallback is not needed.** |
-| Provisioning end-to-end | same artefact: picker → IndexedDB → port message → background write |
-| Handle persists in IndexedDB | `chrome-extension_ifmmgibjjcicnmfdkgbjbnkebofjdabc_0.indexeddb.leveldb`, 28K |
-| USB mode still active | `mvelo.usb.config` holds `keystoreId 431ae6d3…`, no key material |
-| Opt-in gating | local store holds `mvelo.keyring.…{public,private}Keys` as `[]`, written during keyring init *before* provisioning: until a keystore is configured the wrapper passes through to local, as intended |
-| Attribute split | local `mvelo.keyring.attributes` is `{"localhost|#|mailvelope":{"sanitized":true}}` — registry and non-crypto flags only |
-| **No key material on local disk** | `grep -rl "BEGIN PGP"` across the whole `Local Extension Settings` tree: clean |
+## 4. Test coverage
 
-Environment: Chromium `151.0.7922.173` (native via pacman — deliberately not flatpak, whose
-portal sandbox can hide `/run/media/…` and would confound results). Extension ID
-`ifmmgibjjcicnmfdkgbjbnkebofjdabc`, loaded unpacked from `build/chrome`.
+`src/modules/usb`: **80.8% statements**, `guard.js` and `handlers.js` at 100%, `router.js` 98%,
+`state.js` 91%, `install.js` 80%, `provision.js` 81%, `FsaBackend.js` 84%.
 
-## 3. Not verified
+`handleStore.js` is at 0% — testing IndexedDB needs a `fake-indexeddb` dependency that is not
+installed. It is however runtime-proven: the whole feature depends on it working.
 
-### Covered by unit tests, never seen in a real browser
+Notable gaps: the *wiring* of the crypto gate is untested (`guard.test.js` covers the function,
+nothing asserts `pgpModel`'s five call sites invoke it), and `GenerateKey.js`'s upload default
+has no test — a component test there needs the port, keyring context and six children mocked.
 
-`/tmp/mailvelope-keystore` holds 1 file and 0 keyring directories, so **no key has ever been
-written to the device.** These behaviours are asserted against a fake backend but have never
-run against the real File System Access API:
+**Discipline that paid off:** every new test was checked by reverting the production change and
+confirming it fails. The first attempt at the GnuPG-exclusion tests passed while asserting
+nothing, because the module mocks made `gpgme` unavailable so `initGPG()` deleted that keyring
+regardless of USB mode. A new test that goes green on the first run deserves the revert check.
 
-- key generation onto the device — nothing has ever written `private.asc`
-- transition to `ABSENT` on removal, and the badge, banner and refusal that follow
-- purge of in-memory keyrings and the passphrase cache
-- return to `READY`, and `WRONG_DEVICE`
-- fail-closed writes
-- badge arbitration against `uiLog`
+## 5. Remaining work
 
-### Not covered at all
+### Needs a real USB stick
 
-- **Permission persistence across a browser restart** — Phase 0's second question, still open.
-  Cannot be told from disk: config and handle both persist, but whether the *grant* does needs
-  the UI. Restart Chromium only, never the machine: `/tmp` is tmpfs.
-- **`provision.js`** — `provision()`, `migrateLocalKeyMaterial()`, `inspectLocalKeyMaterial()`
-  and `diagnostics()` have no unit tests. Provisioning is known to work from the manual run;
-  migration is entirely unexercised.
-- **UI components** — no rendering tests for any of `src/components/usb/`.
+`/tmp` is tmpfs: RAM-backed, case-sensitive, fast, wiped on reboot. It cannot exercise:
 
-### Cannot be tested on `/tmp` at all
+- torn writes from pulling a device mid-save (the `.tmp` → verify → `.bak` → `move` path)
+- real removal timing and slow-media latency
+- case-insensitive filesystems (FAT32/exFAT) — the reason directory names are hex, not base64
+- the "mount point disappears entirely" removal mode (`/tmp` itself was picked, so only
+  "contents gone" is reachable — re-provision against a subdirectory to test both)
 
-`/tmp` is tmpfs: RAM-backed, case-sensitive, fast, wiped on reboot. It cannot exercise torn
-writes from pulling a device mid-save (the `.tmp` → verify → `.bak` → `move` path), real removal
-timing, case-insensitive filesystems (FAT32/exFAT — the reason for hex rather than base64
-directory names), or the "mount point disappears entirely" removal mode (`/tmp` itself was
-picked, so only "contents gone" is reachable — re-provision against `/tmp/usbtest` for both).
+### One open decision
 
-**A real USB stick is required before this feature can be called done.**
+`api.controller.hasPrivateKey` answers the **client API**, so a webmail provider asking "does
+this user have a key?" gets `false` while the device is detached. Recommendation after review:
+**leave it**, and note in the client-API JSDoc that these queries reflect currently-reachable
+keys. The dangerous outcome is already prevented — a provider that responds by prompting key
+generation gets a fail-closed write and a clear device error, so no replacement key can be
+created. Throwing instead would be more honest but would change behaviour for third-party
+integrations that cannot be tested from here.
 
-### Still not implemented
+### Not implemented
 
-| Gap | Plan ref | Consequence |
-|---|---|---|
-| Generate/import not gated behind device setup | §3.2.1 | `UsbSetupCard` offers the option but nothing enforces ordering: generating *before* provisioning writes a key locally and lands in the §3.1 residue case. `strings.generate_first_*` exists and is unused. The background now fails closed, so this is a UX ordering problem rather than a correctness hole |
-| LevelDB residue not measured | §3.1 | migration residue severity unquantified; the overwrite-before-delete heuristic is unjustified either way |
+- Generate/import ordering is a nudge, not a gate. Nothing prevents generating a key *before*
+  provisioning a device, which lands in the §3.1 residue case. The background fails closed once
+  a keystore is configured, so this is UX rather than correctness.
+- LevelDB residue is unmeasured, so the overwrite-before-delete heuristic remains unjustified.
+- Phase 5: the Firefox native messaging host. Firefox reports `UNSUPPORTED` today.
 
-## 4. Changed on 2026-08-22 (uncommitted)
-
-### Bug found and fixed: a destructive read path
-
-`wrappedGet` threw when the device was absent. `keyring.init()` wraps `buildKeyring()` in a
-`try/catch` that **deletes the keyring from the attribute map** on failure
-([keyring.js:116](../src/modules/keyring.js#L116)), so starting the browser with the device
-unplugged would deregister the keyring — recoverable for the main keyring, permanent for
-client-API keyrings, whose keys would then be stranded on the device.
-
-`readDevice` now degrades to `undefined` (an empty keyring) instead of throwing, which is what
-the plan intended and what the SPLIT branch already did. Writes still fail closed, so reading
-empty and storing it back cannot destroy anything. Two tests in `install.test.js` cover it.
-
-Found by writing the test, not by review — none of that code had ever executed.
-
-### Gaps closed
-
-- **Passphrase required in USB mode** (§3.2). Enforced in the background at *both* entry points,
-  `app.controller.generateKey` and the client-API-driven `privateKey.controller.generateKey`, so
-  a webmail page cannot bypass it. Code `USB_KEYSTORE_PASSPHRASE_REQUIRED`. `GenerateKey.js`
-  already required a non-empty password, but that was UI-only validation.
-- **GnuPG keyring hidden in USB mode** (§9.2). Excluded from `getPreferredKeyringQueue()`,
-  `getAll()` and `getAllKeyringAttr()`, so it leaves key selection *and* the keyring selector.
-  This required touching `keyring.js`, previously untouched on purpose.
-- **Storage-audit test** (Phase 4). Requirement 3 is now asserted rather than claimed.
-
-### A note on the first attempt at the GnuPG tests
-
-They passed while asserting nothing: the module-level mocks make `gpgme` unavailable, so
-`initGPG()` deleted the GnuPG keyring regardless of USB mode. Rewritten with per-case
-`jest.doMock` (including `__esModule: true`, without which babel's interop breaks `new`), and
-with `chrome.storage.session` seeded so `init()` *awaits* `initGPG()` instead of firing and
-forgetting it. Then verified by reverting the production change and confirming they fail.
-
-Worth remembering as a pattern: a new test that passes immediately against code it is supposed
-to be exercising deserves the revert check.
-
-## 5. Still-open decisions (plan §9)
+### Still-open plan decisions
 
 - Probe interval — 1 min is the practical Chrome MV3 alarm floor.
-- Firefox: ship Chromium-only with `UNSUPPORTED`, or wait for the Phase 5 native host?
+- Firefox: ship Chromium-only, or wait for the native host?
 - Should USB mode force `security.password_cache` off rather than only purging on removal?
-  Leaning yes: caching decrypted keys undercuts the point of removing the device.
 
-## 6. Minor
+## 6. Working practices for the next session
 
-Stale empty `mvelo.keyring.*.{public,private}Keys` entries remain in local storage after
-switching to USB. Harmless (`[]`) but `inspectLocalKeyMaterial()` will report them; decide
-whether provisioning should clean them up.
+**Verify the build actually loaded.** `config/webpack.background.js:38` stamps dev builds with
+`${version} build: ${ISO timestamp}`, shown in the **footer, bottom-right of any Mailvelope
+Options page** (UTC). Reload, check the stamp matches, *then* test. Several rounds were wasted
+reasoning about behaviour from a stale bundle.
+
+**Never run `grunt` while the extension is loaded.** The default task runs `clean`, which
+deletes `build/`, invalidating the unpacked extension — Chromium then shows
+`ERR_FILE_NOT_FOUND` and the extension has to be reloaded or re-added. Use `grunt webpack:dev`
+mid-testing, or rebuild only between tests.
+
+**Grep for the field, not for a pattern you assume contains it.** Time was lost hunting a
+non-existent bug because `grep -rc` skipped LevelDB's `.log` as binary, and because the
+extraction pattern assumed a JSON key order that Chrome does not preserve.
 
 ## 7. Environment gotcha for a fresh clone
 
 `npm ci` fails with `EALLOWGIT`: **npm 12 defaults `allow-git=none`**, and this project has two
 git dependencies (`gpgmejs`, `emailjs-mime-builder`) that the lockfile pins to `git+ssh://`.
-There are no SSH keys on this machine, so both the policy and the transport need handling:
+With no SSH keys present, both the policy and the transport need handling:
 
 ```
 GIT_CONFIG_COUNT=2 \
@@ -157,6 +173,5 @@ npm ci --allow-git=root
 ```
 
 `allow-git=root` permits only git deps declared in this project's own `package.json`, narrower
-than `all`. `.npmrc` is gitignored (line 98), so it can be made permanent there without touching
-the repo. `allow-remote` is not a problem — all 1,353 other packages resolve to
-`registry.npmjs.org`.
+than `all`. `.npmrc` is gitignored (line 98), so it can be made permanent there without
+touching the repo.
