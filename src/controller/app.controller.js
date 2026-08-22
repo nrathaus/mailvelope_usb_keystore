@@ -24,6 +24,7 @@ import * as mveloKeyServer from '../modules/mveloKeyServer';
 import * as autocrypt from '../modules/autocryptWrapper';
 import {denyCampaign, isCampaignCurrentlyGranted, grantCampaign, recordOnboardingStep, ADD_KEY, BEGIN, ONBOARDING_CAMPAIGN} from '../lib/analytics';
 import {registerUsbHandlers} from '../modules/usb/handlers';
+import {assertPassphrase} from '../modules/usb/guard';
 
 export default class AppController extends SubController {
   constructor(port) {
@@ -242,6 +243,7 @@ export default class AppController extends SubController {
   }
 
   async generateKey({parameters, keyringId}) {
+    assertPassphrase(parameters.passphrase);
     const keyring = await keyringById(keyringId);
     const newKey = await keyring.generateKey(parameters);
     const keyId = newKey.privateKey.getKeyID().toHex().toUpperCase();

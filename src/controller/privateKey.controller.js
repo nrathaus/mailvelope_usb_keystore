@@ -13,7 +13,7 @@ import * as pwdCache from '../modules/pwdCache';
 import * as sync from './sync.controller';
 import {getById as getKeyringById} from '../modules/keyring';
 import {createPrivateKeyBackup, restorePrivateKeyBackup} from '../modules/pgpModel';
-import {assertRemoteKeyStorageAllowed} from '../modules/usb/guard';
+import {assertRemoteKeyStorageAllowed, assertPassphrase} from '../modules/usb/guard';
 
 export default class PrivateKeyController extends SubController {
   constructor(port) {
@@ -115,6 +115,7 @@ export default class PrivateKeyController extends SubController {
     }
     this.ports.keyGenDialog.emit('show-waiting');
     try {
+      assertPassphrase(password);
       const keyring = await getKeyringById(this.state.keyringId);
       const {publicKey, privateKey} = await keyring.generateKey({
         keyAlgo: 'rsa',

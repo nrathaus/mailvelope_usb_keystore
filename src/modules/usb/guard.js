@@ -21,6 +21,27 @@ import {USB_KEYSTORE_UNAVAILABLE} from './constants';
 import {isEnabled} from './state';
 
 /**
+ * Require a passphrase whenever keys live on a removable device.
+ *
+ * The device provides separation and portability, not confidentiality: a private
+ * key written to it is protected only by its OpenPGP passphrase. Without one, a
+ * lost device hands over the identity outright, which turns the accepted "losing
+ * the device is survivable" into a compromise.
+ *
+ * Enforced in the background rather than only in the generate form, because key
+ * generation is also reachable from a webmail page through the client API.
+ * @param {String} passphrase
+ */
+export function assertPassphrase(passphrase) {
+  if (isEnabled() && !passphrase) {
+    throw new MvError(
+      'A passphrase is required when keys are stored on a USB device: it is the only protection if the device is lost',
+      'USB_KEYSTORE_PASSPHRASE_REQUIRED'
+    );
+  }
+}
+
+/**
  * May key material be sent to a remote store?
  * @return {Boolean} false while a USB keystore is configured
  */
