@@ -36,17 +36,31 @@ const original = {};
  * @return {Promise<Any>} undefined if the file does not exist yet
  */
 async function readDevice(route) {
-  await state.assertUsable();
+  // A read must never throw because the device is missing.
+  //
+  // keyring.init() treats a failing keystore load as a broken keyring and deletes
+  // it from the attribute map, so an unplugged device at startup would deregister
+  // the keyring entirely -- recoverable for the main keyring, permanent for
+  // client-API keyrings, whose keys would be stranded on the device. Degrade to
+  // "empty" instead. Writes still fail closed, so nothing can be destroyed by
+  // reading empty and storing it back.
+  if (!state.isUsable()) {
+    await state.probe();
+    if (!state.isUsable()) {
+      return undefined;
+    }
+  }
   try {
     const content = await state.getBackend().readFile(route.path);
     return router.deserialize(content, route.format);
   } catch (e) {
-    if (e instanceof NotFoundError) {
-      // Nothing written yet: indistinguishable from an empty store, which is what
-      // KeyStoreLocal expects for a fresh keyring.
-      return undefined;
+    if (!(e instanceof NotFoundError)) {
+      // Not merely absent data: log it, but still degrade rather than take the
+      // destructive path above. The state machine reports ERROR to the user
+      // independently, so the failure is not hidden from them.
+      console.log('USB keystore: read failed', route.path, e);
     }
-    throw e;
+    return undefined;
   }
 }
 
