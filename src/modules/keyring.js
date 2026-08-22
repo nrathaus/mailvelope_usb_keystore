@@ -15,7 +15,7 @@ import {gpgme, initNativeMessaging} from '../lib/browser.runtime';
 import {prefs} from './prefs';
 import {isValidEncryptionKey, getLastModifiedDate, toPublic} from './key';
 import {getKeyBinding, isKeyBound} from './keyBinding';
-import {isEnabled as usbKeystoreEnabled} from './usb/state';
+import {isEnabled as usbKeystoreEnabled, isUsable as usbKeystoreUsable} from './usb/state';
 
 /**
  * Map with all keyrings and their attributes. Data is persisted in local storage.
@@ -237,6 +237,15 @@ async function preVerifyKeys(keyringId) {
  */
 async function sanitizeKeyring(keyringId) {
   if (keyringAttr.get(keyringId, 'sanitized')) {
+    return;
+  }
+  // Sanitising writes the keyring back, and a write fails when the USB device
+  // holding it is absent. init() treats any failure here as a broken keyring and
+  // deletes it from the attribute map, so an unplugged device would deregister the
+  // keyring -- permanently for client-API keyrings, whose keys would then be
+  // stranded on the device. Defer instead; the flag stays unset and sanitising
+  // happens on a later start with the device attached.
+  if (usbKeystoreEnabled() && !usbKeystoreUsable()) {
     return;
   }
   const keyring = keyringMap.get(keyringId);

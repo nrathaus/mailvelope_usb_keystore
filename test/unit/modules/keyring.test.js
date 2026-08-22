@@ -9,7 +9,7 @@ jest.mock('openpgp', () => ({
 jest.mock('@openpgp/web-stream-tools', () => ({readToEnd: jest.fn()}), {virtual: true});
 jest.mock('../../../src/modules/KeyringGPG', () => ({default: class {}}));
 jest.mock('../../../src/modules/KeyStoreGPG', () => ({default: class {}}));
-jest.mock('../../../src/modules/usb/state', () => ({isEnabled: jest.fn(() => false)}));
+jest.mock('../../../src/modules/usb/state', () => ({isEnabled: jest.fn(() => false), isUsable: jest.fn(() => true)}));
 jest.mock('../../../src/lib/browser.runtime', () => ({
   gpgme: null,
   initNativeMessaging: jest.fn()
@@ -174,5 +174,52 @@ describe('keyring GnuPG exclusion in USB mode', () => {
     const ids = (await keyring.getAll()).map(k => k.id);
     expect(ids).not.toContain(GNUPG_KEYRING_ID);
     expect(ids).toContain(MAIN_KEYRING_ID);
+  });
+});
+
+// init() treats a failure while building a keyring as a broken keyring and deletes
+// it from the attribute map. Sanitising writes the keyring back, and that write
+// fails when the USB device holding it is absent -- so an unplugged device at
+// startup could deregister the keyring, permanently for client-API keyrings whose
+// keys would then be stranded on the device.
+describe('keyring sanitisation with an absent USB keystore', () => {
+  let keyring; let usbState;
+
+  const API_KEYRING = 'example.com|#|someapp';
+
+  beforeEach(() => {
+    jest.resetModules();
+    chrome.storage.local.get.mockReset();
+    chrome.storage.local.set.mockReset();
+    chrome.storage.session.get.mockResolvedValue({keyringLoaded: true});
+    usbState = require('../../../src/modules/usb/state');
+    keyring = require('../../../src/modules/keyring');
+    // A keyring that has never been sanitised, so sanitiseKeyring() will try to write.
+    seedStorage({'mvelo.keyring.attributes': {[MAIN_KEYRING_ID]: {}, [API_KEYRING]: {}}});
+  });
+
+  it('keeps the keyring registered when the device is absent', async () => {
+    usbState.isEnabled.mockReturnValue(true);
+    usbState.isUsable.mockReturnValue(false);
+    await keyring.init();
+    const attrs = await keyring.getAllKeyringAttr();
+    expect(Object.keys(attrs)).toContain(API_KEYRING);
+    // Deferred, not done: the flag stays unset so it happens on a later start.
+    expect(attrs[API_KEYRING].sanitized).toBeUndefined();
+  });
+
+  it('sanitises normally when the device is present', async () => {
+    usbState.isEnabled.mockReturnValue(true);
+    usbState.isUsable.mockReturnValue(true);
+    await keyring.init();
+    const attrs = await keyring.getAllKeyringAttr();
+    expect(attrs[API_KEYRING].sanitized).toBe(true);
+  });
+
+  it('sanitises normally with no USB keystore configured', async () => {
+    usbState.isEnabled.mockReturnValue(false);
+    await keyring.init();
+    const attrs = await keyring.getAllKeyringAttr();
+    expect(attrs[API_KEYRING].sanitized).toBe(true);
   });
 });
