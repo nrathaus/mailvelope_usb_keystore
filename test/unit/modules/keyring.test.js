@@ -9,6 +9,7 @@ jest.mock('openpgp', () => ({
 jest.mock('@openpgp/web-stream-tools', () => ({readToEnd: jest.fn()}), {virtual: true});
 jest.mock('../../../src/modules/KeyringGPG', () => ({default: class {}}));
 jest.mock('../../../src/modules/KeyStoreGPG', () => ({default: class {}}));
+jest.mock('../../../src/modules/usb/state', () => ({isEnabled: jest.fn(() => false)}));
 jest.mock('../../../src/lib/browser.runtime', () => ({
   gpgme: null,
   initNativeMessaging: jest.fn()
@@ -83,5 +84,95 @@ describe('keyring hasAnyPrivateKey', () => {
       [`mvelo.keyring.${otherKeyringId}.privateKeys`]: ['-----BEGIN PGP PRIVATE KEY BLOCK-----']
     });
     await expect(hasAnyPrivateKey()).resolves.toBe(true);
+  });
+});
+
+// GnuPG keeps secret keys in the OS home directory, which is exactly what a USB
+// keystore exists to avoid, so it must disappear from key selection and from the
+// keyring listing while that backend is active.
+//
+// The module-level mocks below make gpgme unavailable, which makes initGPG() delete
+// the GnuPG keyring outright -- so these tests override them per-case, otherwise the
+// keyring would never be registered and the assertions would pass vacuously.
+describe('keyring GnuPG exclusion in USB mode', () => {
+  let keyring; let usbState;
+
+  function loadWithGnupgAvailable() {
+    jest.resetModules();
+    jest.doMock('../../../src/lib/browser.runtime', () => ({
+      gpgme: {Keyring: {}},
+      initNativeMessaging: jest.fn()
+    }));
+    jest.doMock('../../../src/modules/KeyStoreGPG', () => ({
+      __esModule: true,
+      default: class {
+        constructor(id) {
+          this.id = id;
+        }
+
+        async load() {}
+
+        clear() {}
+
+        getAllKeys() {
+          return [];
+        }
+      }
+    }));
+    jest.doMock('../../../src/modules/KeyringGPG', () => ({
+      __esModule: true,
+      default: class {
+        constructor(id, keystore) {
+          this.id = id;
+          this.keystore = keystore;
+        }
+
+        getAttr() {
+          return {};
+        }
+      }
+    }));
+    usbState = require('../../../src/modules/usb/state');
+    keyring = require('../../../src/modules/keyring');
+  }
+
+  beforeEach(() => {
+    chrome.storage.local.get.mockReset();
+    chrome.storage.local.set.mockReset();
+    // init() only awaits initGPG() when this is not the first load of the session;
+    // on a first load it is fired and forgotten, so the GnuPG keyring would not yet
+    // be registered when the assertions run.
+    chrome.storage.session.get.mockResolvedValue({keyringLoaded: true});
+  });
+
+  async function withBothKeyrings() {
+    seedStorage({'mvelo.keyring.attributes': {[MAIN_KEYRING_ID]: {}, [GNUPG_KEYRING_ID]: {}}});
+    await keyring.init();
+  }
+
+  it('registers and lists the GnuPG keyring when keys are stored locally', async () => {
+    loadWithGnupgAvailable();
+    usbState.isEnabled.mockReturnValue(false);
+    await withBothKeyrings();
+    expect(Object.keys(await keyring.getAllKeyringAttr())).toContain(GNUPG_KEYRING_ID);
+    expect((await keyring.getAll()).map(k => k.id)).toContain(GNUPG_KEYRING_ID);
+  });
+
+  it('hides the GnuPG keyring from the listing in USB mode', async () => {
+    loadWithGnupgAvailable();
+    usbState.isEnabled.mockReturnValue(true);
+    await withBothKeyrings();
+    const attrs = await keyring.getAllKeyringAttr();
+    expect(Object.keys(attrs)).not.toContain(GNUPG_KEYRING_ID);
+    expect(Object.keys(attrs)).toContain(MAIN_KEYRING_ID);
+  });
+
+  it('excludes the GnuPG keyring from getAll in USB mode', async () => {
+    loadWithGnupgAvailable();
+    usbState.isEnabled.mockReturnValue(true);
+    await withBothKeyrings();
+    const ids = (await keyring.getAll()).map(k => k.id);
+    expect(ids).not.toContain(GNUPG_KEYRING_ID);
+    expect(ids).toContain(MAIN_KEYRING_ID);
   });
 });

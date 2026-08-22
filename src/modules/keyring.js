@@ -15,6 +15,7 @@ import {gpgme, initNativeMessaging} from '../lib/browser.runtime';
 import {prefs} from './prefs';
 import {isValidEncryptionKey, getLastModifiedDate, toPublic} from './key';
 import {getKeyBinding, isKeyBound} from './keyBinding';
+import {isEnabled as usbKeystoreEnabled} from './usb/state';
 
 /**
  * Map with all keyrings and their attributes. Data is persisted in local storage.
@@ -266,7 +267,12 @@ export async function getById(keyringId) {
  */
 export async function getAll() {
   await keyringInitialized;
-  return Array.from(keyringMap.values());
+  const keyrings = Array.from(keyringMap.values());
+  if (usbKeystoreEnabled()) {
+    // See getPreferredKeyringQueue: GnuPG's store is on the local machine.
+    return keyrings.filter(keyring => keyring.id !== GNUPG_KEYRING_ID);
+  }
+  return keyrings;
 }
 
 /**
@@ -305,6 +311,11 @@ export async function getAllKeyringIds() {
 export async function getAllKeyringAttr() {
   await keyringInitialized;
   const attrObj = keyringAttr.toObject();
+  if (usbKeystoreEnabled()) {
+    // Hide it from the keyring selector too, not just from key selection.
+    delete attrObj[GNUPG_KEYRING_ID];
+    return attrObj;
+  }
   if (keyringAttr.has(GNUPG_KEYRING_ID)) {
     const gpgKeyring = keyringMap.get(GNUPG_KEYRING_ID);
     if (gpgKeyring) {
@@ -479,7 +490,9 @@ export async function getKeyByAddress(keyringId, emails, {validForEncrypt = true
  */
 function getPreferredKeyringQueue(keyringId) {
   const keyrings = [];
-  const hasGpgKeyring = keyringMap.has(GNUPG_KEYRING_ID);
+  // GnuPG keeps secret keys in the OS home directory, which is exactly what a USB
+  // keystore exists to avoid, so it is excluded while that backend is active.
+  const hasGpgKeyring = keyringMap.has(GNUPG_KEYRING_ID) && !usbKeystoreEnabled();
   // use gnupg keyring if available and preferred
   if (hasGpgKeyring && prefs.general.prefer_gnupg) {
     keyrings.push(keyringMap.get(GNUPG_KEYRING_ID));
