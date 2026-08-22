@@ -21,7 +21,7 @@ import KeyringSelect from './components/KeyringSelect';
 import KeyringBreadcrumb from './components/KeyringBreadcrumb';
 import Notifications from '../../components/util/Notifications';
 import UsbStatusBadge from '../../components/usb/UsbStatusBadge';
-import {subscribeStatus} from '../../components/usb/usbStatus';
+import {subscribeStatus, isUnavailable} from '../../components/usb/usbStatus';
 
 l10n.register([
   'keyring_generate_key',
@@ -66,6 +66,7 @@ class Keyring extends React.Component {
       keys: [], // active keyring: keys
       keysLoading: true, // active keyring: waiting for loading of keys
       setupSkipped: false,
+      usbStatus: null,
       notifications: []
     };
     this.handleChangeKeyring = this.handleChangeKeyring.bind(this);
@@ -92,6 +93,8 @@ class Keyring extends React.Component {
       const next = status?.state;
       const changed = this.usbState !== undefined && this.usbState !== next;
       this.usbState = next;
+      // Kept in state so render can tell "no key pair" from "cannot read the keys".
+      this.setState({usbStatus: status});
       if (changed) {
         this.loadKeyring();
       }
@@ -162,7 +165,12 @@ class Keyring extends React.Component {
   }
 
   async handleRefreshKeyring() {
-    if (this.state.gnupg) {
+    // Re-read the store, not just the in-memory copy, whenever the keys live
+    // somewhere Mailvelope does not control. That was already true of GnuPG; it is
+    // equally true of a USB device, whose contents can change while detached or be
+    // edited from another machine. Without this, Refresh silently did less than it
+    // appears to for a USB keystore.
+    if (this.state.gnupg || this.state.usbStatus?.enabled) {
       this.setState({keysLoading: true});
       await port.send('reload-keystore', {keyringId: this.state.keyringId});
     }
@@ -213,7 +221,7 @@ class Keyring extends React.Component {
                       <KeyringSetup
                         generatePath="/keyring/generate"
                         importPath="/keyring/import"
-                        showNoKeypairAlert={!this.state.hasPrivateKey && !this.state.hasUsablePrivateKey}
+                        showNoKeypairAlert={!this.state.hasPrivateKey && !this.state.hasUsablePrivateKey && !isUnavailable(this.state.usbStatus)}
                         showGnupgFooter
                       />
                     </div>
