@@ -52,6 +52,9 @@ export const HANDLE_KEY = 'keystoreDir';
 export const DEVICE_ROOT = 'mailvelope-keystore';
 /** Marker file used both as the presence probe and as the device identity. */
 export const MARKER_FILE = 'keystore.json';
+/** Plain-text explanation written alongside the keys, for recovery by hand. */
+export const README_FILE = 'README.txt';
+
 /** Subdirectory holding one directory per keyring. */
 export const KEYRINGS_DIR = 'keyrings';
 

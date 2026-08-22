@@ -14,8 +14,11 @@ import PropTypes from 'prop-types';
 import {port} from '../../app/app';
 import {USB_STATE} from '../../modules/usb/constants';
 import {strings, describeState} from '../../modules/usb/strings';
-import {pickDirectory, isPickerAvailable} from '../../modules/usb/provision';
+import {pickDirectory, isPickerAvailable, regrantPermission} from '../../modules/usb/provision';
 import {STORAGE, storageOf, statusVariant, subscribeStatus, updateStatus} from './usbStatus';
+
+/** Provisioning refusals the user is allowed to overrule. */
+const OVERRIDABLE = ['USB_KEYSTORE_DIFFERENT_DEVICE', 'USB_KEYSTORE_NOT_CONFIGURED_DEVICE'];
 
 export default class KeyStorageSettings extends React.Component {
   constructor(props) {
@@ -27,13 +30,16 @@ export default class KeyStorageSettings extends React.Component {
       pendingUsb: false,  // 'USB' selected in the UI but no device chosen yet
       busy: false,
       error: null,
-      notice: null
+      notice: null,
+      adoptable: null  // label to retry with when a refusal can be overridden
     };
     this.handleSelectStorage = this.handleSelectStorage.bind(this);
     this.handleChooseDirectory = this.handleChooseDirectory.bind(this);
     this.handleMigrate = this.handleMigrate.bind(this);
     this.handleDisable = this.handleDisable.bind(this);
     this.handleProbe = this.handleProbe.bind(this);
+    this.handleReconnect = this.handleReconnect.bind(this);
+    this.handleAdopt = this.handleAdopt.bind(this);
   }
 
   componentDidMount() {
@@ -73,7 +79,7 @@ export default class KeyStorageSettings extends React.Component {
    * @param {String} [notice] - success message
    */
   async run(fn, notice) {
-    this.setState({busy: true, error: null, notice: null});
+    this.setState({busy: true, error: null, notice: null, adoptable: null});
     try {
       const status = await fn();
       if (status) {
@@ -102,15 +108,50 @@ export default class KeyStorageSettings extends React.Component {
     this.setState({pendingUsb: true, error: null, notice: null});
   }
 
-  handleChooseDirectory() {
+  /**
+   * @param {Boolean} [adoptArg] - true only when the user has explicitly agreed to
+   *   switch to a different keystore. Coerced strictly: React hands a click event
+   *   to an unwrapped handler, and a truthy event must not read as consent.
+   */
+  handleChooseDirectory(adoptArg) {
+    const adopt = adoptArg === true;
     return this.run(async () => {
       const {name} = await pickDirectory();
-      return port.send('usb-provision', {label: name});
+      try {
+        return await port.send('usb-provision', {label: name, adopt});
+      } catch (e) {
+        // Two refusals are the user's to overrule: a folder holding a different
+        // keystore, or none at all. Offer the override rather than dead-ending.
+        if (OVERRIDABLE.includes(e.code)) {
+          this.setState({adoptable: name});
+        }
+        throw e;
+      }
     });
+  }
+
+  handleAdopt() {
+    const label = this.state.adoptable;
+    return this.run(() => port.send('usb-provision', {label, adopt: true}));
   }
 
   handleProbe() {
     return this.run(() => port.send('usb-probe'));
+  }
+
+  /**
+   * Restore access to the directory already configured, falling back to a full
+   * pick only if there is nothing stored or the user declines.
+   */
+  handleReconnect() {
+    return this.run(async () => {
+      const {granted} = await regrantPermission();
+      if (!granted) {
+        const {name} = await pickDirectory();
+        return port.send('usb-provision', {label: name});
+      }
+      return port.send('usb-probe');
+    });
   }
 
   handleMigrate() {
@@ -179,7 +220,7 @@ export default class KeyStorageSettings extends React.Component {
           <div className="d-flex flex-wrap">
             {!configured && (
               <button type="button" className="btn btn-primary mr-2 mb-2"
-                onClick={this.handleChooseDirectory} disabled={busy || !isPickerAvailable()}>
+                onClick={() => this.handleChooseDirectory()} disabled={busy || !isPickerAvailable()}>
                 {strings.choose_directory}
               </button>
             )}
@@ -189,7 +230,7 @@ export default class KeyStorageSettings extends React.Component {
                     picking the directory again from this page. */}
                 {status.state === USB_STATE.PERMISSION_REQUIRED && (
                   <button type="button" className="btn btn-primary mr-2 mb-2"
-                    onClick={this.handleChooseDirectory} disabled={busy}>
+                    onClick={this.handleReconnect} disabled={busy}>
                     {strings.reconnect}
                   </button>
                 )}
@@ -253,12 +294,25 @@ export default class KeyStorageSettings extends React.Component {
   }
 
   render() {
-    const {status, pendingUsb, error, notice} = this.state;
+    const {status, pendingUsb, error, notice, adoptable} = this.state;
     const showDevice = pendingUsb || Boolean(status?.enabled);
     return (
       <div id="key-storage">
         <h2 className="mb-4">{strings.settings_tab}</h2>
-        {error && <div className="alert alert-danger">{error}</div>}
+        {error && (
+          <div className="alert alert-danger">
+            <p className={adoptable ? 'mb-2' : 'mb-0'}>{error}</p>
+            {adoptable && (
+              <>
+                <p className="mb-2 small">{strings.adopt_hint}</p>
+                <button type="button" className="btn btn-sm btn-danger"
+                  onClick={this.handleAdopt} disabled={this.state.busy}>
+                  {strings.adopt_anyway}
+                </button>
+              </>
+            )}
+          </div>
+        )}
         {notice && <div className="alert alert-success">{notice}</div>}
         {this.renderStorageChoice()}
         {showDevice && this.renderDevicePanel()}

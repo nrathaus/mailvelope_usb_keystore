@@ -136,6 +136,37 @@ describe('usb/provision', () => {
       expect(status.state).toBe(constants.USB_STATE.READY);
     });
 
+    // Whoever finds this folder may be doing so because Mailvelope is gone, so
+    // the recovery instructions have to live on the device.
+    it('leaves recovery instructions on the device', async () => {
+      seedStorage({});
+      seedDevice({});
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+      await provision.provision({label: 'stick'});
+      const readme = device['mailvelope-keystore/README.txt'];
+      expect(readme).toContain('gpg --import');
+      expect(readme).toContain('private.asc');
+      // It must also explain the mistake the guard exists to catch.
+      expect(readme).toContain('not this folder itself');
+    });
+
+    it('still provisions when the README cannot be written', async () => {
+      seedStorage({});
+      seedDevice({});
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+      mocks.writeFile.mockImplementation((path, content) => {
+        if (path.endsWith('README.txt')) {
+          return Promise.reject(new Error('read-only'));
+        }
+        device[path] = content;
+        return Promise.resolve();
+      });
+      const status = await provision.provision({label: 'stick'});
+      expect(status.state).toBe(constants.USB_STATE.READY);
+    });
+
     // A device set up on another machine should be adoptable rather than reset,
     // which would orphan the keys already on it.
     it('adopts an existing keystore without rewriting its id', async () => {
@@ -147,6 +178,68 @@ describe('usb/provision', () => {
       await provision.provision({label: 'ignored'});
       expect(JSON.parse(device['mailvelope-keystore/keystore.json']).keystoreId).toBe('pre-existing');
       expect((await state.getConfig()).keystoreId).toBe('pre-existing');
+    });
+
+    // Picking the keystore folder itself nests a second keystore inside the first,
+    // and it is the natural choice when reconnecting because it is the folder the
+    // user can actually see.
+    it('refuses the keystore folder itself', async () => {
+      seedStorage({});
+      seedDevice({'keystore.json': JSON.stringify({keystoreId: 'inner', version: 1})});
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+      await expect(provision.provision({label: 'mailvelope-keystore'}))
+      .rejects.toMatchObject({code: 'USB_KEYSTORE_NESTED_PICK'});
+      // Nothing nested was created.
+      expect(device['mailvelope-keystore/keystore.json']).toBeUndefined();
+    });
+
+    // Silently repointing would leave the user looking at an empty keyring while
+    // their keys sat on the previous device.
+    it('refuses to switch to a different keystore without being told to', async () => {
+      await bootReady();
+      seedDevice({'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: 'someone-else'})});
+      await expect(provision.provision({label: 'other'}))
+      .rejects.toMatchObject({code: 'USB_KEYSTORE_DIFFERENT_DEVICE'});
+      expect((await state.getConfig()).keystoreId).toBe(KEYSTORE_ID);
+    });
+
+    it('refuses a folder holding no keystore when one is already configured', async () => {
+      await bootReady();
+      seedDevice({});
+      await expect(provision.provision({label: 'empty'}))
+      .rejects.toMatchObject({code: 'USB_KEYSTORE_NOT_CONFIGURED_DEVICE'});
+      expect((await state.getConfig()).keystoreId).toBe(KEYSTORE_ID);
+      // No new identity was minted over the configured one.
+      expect(device['mailvelope-keystore/keystore.json']).toBeUndefined();
+    });
+
+    it('switches when the user explicitly adopts the other keystore', async () => {
+      await bootReady();
+      seedDevice({'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: 'someone-else', label: 'other'})});
+      await provision.provision({label: 'other', adopt: true});
+      expect((await state.getConfig()).keystoreId).toBe('someone-else');
+    });
+
+    // A React click event reached this flag as `adopt` once, making every pick
+    // adopt silently and defeating the identity check. Only an explicit true counts.
+    it('treats a non-boolean adopt flag as no consent', async () => {
+      await bootReady();
+      seedDevice({'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: 'someone-else'})});
+      for (const bogus of [{nativeEvent: {}}, 'yes', 1, {}]) {
+        await expect(provision.provision({label: 'other', adopt: bogus}))
+        .rejects.toMatchObject({code: 'USB_KEYSTORE_DIFFERENT_DEVICE'});
+      }
+      expect((await state.getConfig()).keystoreId).toBe(KEYSTORE_ID);
+    });
+
+    it('creates a keystore on an empty folder when the user adopts it', async () => {
+      await bootReady();
+      seedDevice({});
+      await provision.provision({label: 'fresh', adopt: true});
+      const marker = JSON.parse(device['mailvelope-keystore/keystore.json']);
+      expect(marker.label).toBe('fresh');
+      expect((await state.getConfig()).keystoreId).toBe(marker.keystoreId);
     });
 
     it('refuses when the browser has no backend', async () => {

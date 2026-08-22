@@ -10,9 +10,9 @@
  * where the backend lives.
  */
 
-import {getUUID} from '../../lib/util';
+import {getUUID, MvError} from '../../lib/util';
 import {
-  DEVICE_ROOT, MARKER_FILE, KEYRINGS_DIR, KEYSTORE_VERSION, USB_STATE
+  DEVICE_ROOT, MARKER_FILE, README_FILE, KEYRINGS_DIR, KEYSTORE_VERSION, USB_STATE
 } from './constants';
 import * as state from './state';
 import * as router from './router';
@@ -49,35 +49,162 @@ export async function pickDirectory() {
 }
 
 /**
+ * Explanation left on the device itself.
+ *
+ * This keystore is intended to be the only copy of its private keys, so whoever
+ * finds this folder may be doing so precisely because Mailvelope is unavailable —
+ * a new machine, a broken extension, no browser at all. The instructions for
+ * getting the keys out by hand therefore belong on the device, not only in the
+ * extension's UI.
+ * @return {String}
+ */
+function readmeText() {
+  return [
+    'Mailvelope USB keystore',
+    '=======================',
+    '',
+    'This folder holds the OpenPGP keys for a Mailvelope installation. It is',
+    'deliberately the only copy: nothing is stored on the computer.',
+    '',
+    'Layout',
+    '------',
+    '  keystore.json          identifies this keystore. Do not delete it.',
+    '  keyrings/<id>/         one folder per keyring',
+    '    private.asc          private keys, armored',
+    '    public.asc           public keys, armored',
+    '    attributes.json      which key is the default, and similar settings',
+    '    *.bak                previous version of a file, kept in case a save',
+    '                         was interrupted',
+    '',
+    'Recovering the keys without Mailvelope',
+    '--------------------------------------',
+    'The .asc files are ordinary armored OpenPGP keys, so any OpenPGP tool can',
+    'read them:',
+    '',
+    '  gpg --import keyrings/*/private.asc',
+    '',
+    'The private keys are protected by the passphrase set when they were created.',
+    'That passphrase is the only thing protecting them if this device is lost or',
+    'stolen -- there is no other copy and no way to reset it.',
+    '',
+    'Reconnecting in Mailvelope',
+    '--------------------------',
+    'In Mailvelope, open Settings -> Key Storage and select the folder that',
+    'CONTAINS this one (usually the root of the device), not this folder itself.',
+    ''
+  ].join('\n');
+}
+
+/**
+ * Read and parse a marker file, or undefined if it is absent or unreadable.
+ * @param {UsbBackend} backend
+ * @param {String} path
+ * @return {Promise<Object|undefined>}
+ */
+async function readMarker(backend, path) {
+  try {
+    const marker = JSON.parse(await backend.readFile(path));
+    return marker?.keystoreId ? marker : undefined;
+  } catch (e) {
+    if (e instanceof NotFoundError) {
+      return undefined;
+    }
+    // A corrupt or unreadable marker is not a usable keystore identity either.
+    return undefined;
+  }
+}
+
+/**
+ * Re-grant access to the directory already stored for this profile.
+ *
+ * A permission grant does not survive an extension reload, and in all likelihood
+ * not a browser restart either, so this is a routine action rather than an edge
+ * case. Re-prompting for the stored handle asks the user to approve one dialog;
+ * calling showDirectoryPicker() again would make them navigate to the directory
+ * from scratch every session. App page only: requestPermission needs a user
+ * gesture.
+ * @return {Promise<{granted: Boolean, name: String|undefined}>}
+ */
+export async function regrantPermission() {
+  const handle = await handleStore.get();
+  if (!handle) {
+    // Nothing stored to re-grant; the caller falls back to a full pick.
+    return {granted: false, name: undefined};
+  }
+  if (await handle.queryPermission({mode: 'readwrite'}) === 'granted') {
+    return {granted: true, name: handle.name};
+  }
+  const permission = await handle.requestPermission({mode: 'readwrite'});
+  return {granted: permission === 'granted', name: handle.name};
+}
+
+/**
  * Create the keystore on the device and record it as this profile's keystore.
  * Reuses an existing marker file if the device already holds one, so a device set
  * up on another machine can simply be adopted.
  * @param {String} [label] - human-readable label stored in the marker file
  * @return {Promise<Object>} status after provisioning
  */
-export async function provision({label} = {}) {
+export async function provision({label, adopt: adoptArg} = {}) {
+  // Strict coercion: this arrives over a port from a view, and only an explicit
+  // true counts as consent to switch keystore. Anything else -- a stray object, a
+  // truthy string -- must not bypass the identity check below.
+  const adopt = adoptArg === true;
   const backend = state.getBackend();
   if (!backend) {
     throw new Error('No USB keystore backend available in this browser');
   }
   backend.clearCache?.();
+
+  // Reject the keystore directory itself. Picking it would nest a second keystore
+  // inside the first, and it is the natural thing to choose when reconnecting
+  // because it is the folder the user can actually see.
+  if (await readMarker(backend, MARKER_FILE)) {
+    throw new MvError(
+      `The selected folder is already a Mailvelope keystore. Select the folder that contains '${DEVICE_ROOT}' instead, such as the root of the device.`,
+      'USB_KEYSTORE_NESTED_PICK'
+    );
+  }
+
   const markerPath = `${DEVICE_ROOT}/${MARKER_FILE}`;
-  let marker;
-  try {
-    marker = JSON.parse(await backend.readFile(markerPath));
-  } catch (e) {
-    if (!(e instanceof NotFoundError)) {
-      throw e;
+  const marker = await readMarker(backend, markerPath);
+  const existing = await state.getConfig();
+
+  // Never repoint a configured profile at a different keystore without being told
+  // to. Doing so silently would leave the user looking at an empty keyring while
+  // their keys sat on the previous device.
+  if (existing?.keystoreId && !adopt) {
+    if (!marker?.keystoreId) {
+      throw new MvError(
+        'This folder holds no Mailvelope keystore. Select the device this profile was set up with, or choose to switch to this folder instead.',
+        'USB_KEYSTORE_NOT_CONFIGURED_DEVICE'
+      );
+    }
+    if (marker.keystoreId !== existing.keystoreId) {
+      throw new MvError(
+        'This is a different Mailvelope keystore from the one this profile uses. Switching to it will leave the keys on the previous device inaccessible from here.',
+        'USB_KEYSTORE_DIFFERENT_DEVICE'
+      );
     }
   }
+
   if (!marker?.keystoreId) {
-    marker = {
+    const created = {
       version: KEYSTORE_VERSION,
       keystoreId: getUUID(),
       created: new Date().toISOString(),
       label: label || 'Mailvelope USB keystore'
     };
-    await backend.writeFile(markerPath, JSON.stringify(marker, null, 2));
+    await backend.writeFile(markerPath, JSON.stringify(created, null, 2));
+    try {
+      await backend.writeFile(`${DEVICE_ROOT}/${README_FILE}`, readmeText());
+    } catch (e) {
+      // Guidance is not worth failing provisioning over.
+      console.log('USB keystore: could not write README', e);
+    }
+    await state.setConfig({keystoreId: created.keystoreId, label: created.label, provisioned: created.created});
+    await state.reload();
+    return state.getStatus();
   }
   await state.setConfig({keystoreId: marker.keystoreId, label: marker.label, provisioned: marker.created});
   await state.reload();

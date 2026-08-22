@@ -46,7 +46,7 @@ export const strings = {
   action_menu_unavailable: 'USB keystore not connected',
 
   choose_directory: 'Choose directory…',
-  choose_directory_hint: 'Select a folder on the USB device. Mailvelope creates a “mailvelope-keystore” folder inside it.',
+  choose_directory_hint: 'Select the drive or folder that will contain the keystore — typically the root of the device. Mailvelope creates a “mailvelope-keystore” folder inside it, so do not select that folder itself.',
   reconnect: 'Reconnect',
   disable: 'Stop using the USB keystore',
   disable_hint: 'Keys already on the device are left untouched. This browser profile will no longer have access to them.',
@@ -61,6 +61,8 @@ export const strings = {
   migrate_public: '$1 public key(s)',
   migrate_autocrypt: '$1 Autocrypt record(s)',
   check_again: 'Check again',
+  adopt_anyway: 'Use this folder anyway',
+  adopt_hint: 'The keys on the folder this profile used before will no longer be reachable from this browser.',
   migrate_residue_warning: 'Deleting local data does not erase it from the disk: a migrated private key may stay recoverable from the browser profile until the browser reclaims that space. For keys that must never touch this computer, generate a new key directly onto the device and revoke the old one.',
 
   passphrase_required: 'A passphrase is required when keys are stored on a USB device — it is the only thing protecting them if the device is lost.',
