@@ -32,6 +32,10 @@ export const strings = {
   setup_card_button: 'Set up USB keystore',
 
   status_heading: 'Device status',
+  status_folder: 'Folder',
+  status_folder_unknown: 'not selected yet',
+  status_path_note: 'Keys are kept in a “mailvelope-keystore” folder inside it. Browsers only report the folder name, not its full path.',
+  status_keystore_id: 'Keystore ID',
   status_ready: 'Connected and ready.',
   status_not_configured: 'No USB keystore has been set up.',
   status_unsupported: 'This browser cannot access a USB keystore. Chrome or another Chromium browser is required; Firefox support needs the Mailvelope native helper.',
@@ -46,6 +50,8 @@ export const strings = {
   action_menu_unavailable: 'USB keystore not connected',
 
   choose_directory: 'Choose directory…',
+  choose_other_directory: 'Select a different folder…',
+  choose_other_directory_hint: 'Use this if the device is mounted somewhere new, or to point this profile at a different device.',
   choose_directory_hint: 'Select the drive or folder that will contain the keystore — typically the root of the device. Mailvelope creates a “mailvelope-keystore” folder inside it, so do not select that folder itself.',
   reconnect: 'Reconnect',
   disable: 'Stop using the USB keystore',

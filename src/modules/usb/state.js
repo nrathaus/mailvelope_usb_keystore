@@ -25,6 +25,8 @@ let backend = null;
 let state = USB_STATE.NOT_CONFIGURED;
 let detail = null;
 let enabled = false;
+let label = null;
+let keystoreId = null;
 const listeners = new Set();
 
 /**
@@ -50,7 +52,10 @@ export function getState() {
 }
 
 export function getStatus() {
-  return {state, detail, supported: Boolean(backend), enabled};
+  // label is the picked folder's name. Chrome does not expose a handle's full path,
+  // so this is the most specific location the UI can show -- enough to tell one
+  // configured device from another.
+  return {state, detail, supported: Boolean(backend), enabled, label, keystoreId};
 }
 
 export function isUsable() {
@@ -146,6 +151,8 @@ function transition(nextState, nextDetail = null) {
 async function computeState() {
   const config = await getConfig();
   enabled = Boolean(config?.keystoreId);
+  label = config?.label ?? null;
+  keystoreId = config?.keystoreId ?? null;
   // Not opting in takes precedence over an unsupported browser: an unconfigured
   // profile is simply upstream Mailvelope, and the setup UI reports separately
   // (via getStatus().supported) whether this browser could support the feature.

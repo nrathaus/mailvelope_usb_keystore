@@ -216,12 +216,32 @@ export default class KeyStorageSettings extends React.Component {
             <span className={`badge badge-${statusVariant(status)} mr-2`}>{status?.state ?? '…'}</span>
             {describeState(status?.state)}
           </p>
+          {configured && (
+            <dl className="row small mb-3">
+              <dt className="col-sm-4">{strings.status_folder}</dt>
+              <dd className="col-sm-8 mb-1">
+                <code>{status.label || strings.status_folder_unknown}</code>
+                {status.label && <span className="d-block text-muted">{strings.status_path_note}</span>}
+              </dd>
+              {status.keystoreId && (
+                <>
+                  <dt className="col-sm-4">{strings.status_keystore_id}</dt>
+                  <dd className="col-sm-8 mb-0"><code>{status.keystoreId}</code></dd>
+                </>
+              )}
+            </dl>
+          )}
           {configured && status.detail && <p className="text-muted small mb-3">{status.detail}</p>}
           <div className="d-flex flex-wrap">
-            {!configured && (
-              <button type="button" className="btn btn-primary mr-2 mb-2"
+            {/* Offered whenever the device is not usable, not only before setup:
+                a removable device turns up at a different mount point all the time,
+                and requiring "Stop using the USB keystore" first makes re-pointing
+                look like a destructive act. */}
+            {(!configured || status.state !== USB_STATE.READY) && (
+              <button type="button"
+                className={`btn mr-2 mb-2 ${configured ? 'btn-secondary' : 'btn-primary'}`}
                 onClick={() => this.handleChooseDirectory()} disabled={busy || !isPickerAvailable()}>
-                {strings.choose_directory}
+                {configured ? strings.choose_other_directory : strings.choose_directory}
               </button>
             )}
             {configured && (
@@ -246,7 +266,9 @@ export default class KeyStorageSettings extends React.Component {
             )}
           </div>
           <p className="text-muted small mb-0">
-            {configured ? strings.disable_hint : strings.choose_directory_hint}
+            {!configured && strings.choose_directory_hint}
+            {configured && status.state !== USB_STATE.READY && strings.choose_other_directory_hint}
+            {configured && status.state === USB_STATE.READY && strings.disable_hint}
           </p>
           {diagnostics?.keyrings?.length > 0 && (
             <ul className="list-unstyled small text-muted mt-3 mb-0">
