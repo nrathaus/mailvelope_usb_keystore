@@ -448,4 +448,69 @@ describe('usb/provision', () => {
       expect(mocks.listDir).not.toHaveBeenCalled();
     });
   });
+  describe('migration onto a device that already holds a keystore', () => {
+    const DEVICE_KEY = '-----BEGIN PGP PRIVATE KEY BLOCK-----\ndevice\n-----END PGP PRIVATE KEY BLOCK-----';
+    const LOCAL_KEY = '-----BEGIN PGP PRIVATE KEY BLOCK-----\nlocal\n-----END PGP PRIVATE KEY BLOCK-----';
+    const PRIV_PATH = `mailvelope-keystore/keyrings/${Buffer.from(MAIN).toString('hex')}/private.asc`;
+
+    // Migration wrote the local value straight over the device path, so moving keys
+    // onto a device that already had a keystore destroyed its keys -- recoverable
+    // only from the .bak the atomic write happens to leave behind. Observed on real
+    // hardware: a device key was replaced by the migrated one.
+    it('keeps the keys already on the device', async () => {
+      seedStorage({
+        [constants.USB_CONFIG_KEY]: {keystoreId: KEYSTORE_ID},
+        [`mvelo.keyring.${MAIN}.privateKeys`]: [LOCAL_KEY]
+      });
+      seedDevice({
+        'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: KEYSTORE_ID}),
+        [PRIV_PATH]: DEVICE_KEY
+      });
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+
+      const result = await provision.migrateLocalKeyMaterial();
+      expect(result.failed).toEqual([]);
+      expect(device[PRIV_PATH]).toContain('device');
+      expect(device[PRIV_PATH]).toContain('local');
+      expect(result.added).toBe(1);
+    });
+
+    it('does not duplicate a key already present on the device', async () => {
+      seedStorage({
+        [constants.USB_CONFIG_KEY]: {keystoreId: KEYSTORE_ID},
+        [`mvelo.keyring.${MAIN}.privateKeys`]: [DEVICE_KEY]
+      });
+      seedDevice({
+        'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: KEYSTORE_ID}),
+        [PRIV_PATH]: DEVICE_KEY
+      });
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+
+      const result = await provision.migrateLocalKeyMaterial();
+      const blocks = device[PRIV_PATH].match(/BEGIN PGP PRIVATE KEY BLOCK/g) || [];
+      expect(blocks).toHaveLength(1);
+      expect(result.added).toBe(0);
+    });
+
+    // attributes.json named a default key that migration had just removed from the
+    // keystore, leaving the device internally inconsistent.
+    it('does not repoint the default key of an existing keystore', async () => {
+      const attrPath = 'mailvelope-keystore/keyrings/attributes.json';
+      seedStorage({
+        [constants.USB_CONFIG_KEY]: {keystoreId: KEYSTORE_ID},
+        'mvelo.keyring.attributes': {[MAIN]: {default_key: 'incoming'}}
+      });
+      seedDevice({
+        'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: KEYSTORE_ID}),
+        [attrPath]: JSON.stringify({[MAIN]: {default_key: 'already-there'}})
+      });
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+
+      await provision.migrateLocalKeyMaterial();
+      expect(JSON.parse(device[attrPath])[MAIN].default_key).toBe('already-there');
+    });
+  });
 });

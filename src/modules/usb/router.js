@@ -211,6 +211,58 @@ export function serialize(value, format) {
 }
 
 /**
+ * Combine a value already on the device with one being migrated into it.
+ *
+ * Migration used to write the local value straight over the device path, so moving
+ * keys onto a device that already held a keystore destroyed what was there. Only
+ * the atomic-write .bak rotation made that recoverable, which is not a guarantee to
+ * rely on.
+ *
+ * Existing device content always wins a conflict: migration is additive by
+ * definition, and a device's own keystore is not the thing being moved.
+ * @param {Any} existing - value already on the device, or undefined
+ * @param {Any} incoming - value being migrated in
+ * @param {String} format - 'asc' or 'json'
+ * @return {{value: Any, added: Number}} merged value, and how much was new
+ */
+export function mergeForDevice(existing, incoming, format) {
+  if (existing === undefined || existing === null) {
+    const added = format === 'asc' ? (incoming ?? []).length : 1;
+    return {value: incoming, added};
+  }
+  if (format === 'asc') {
+    const blocks = [...(existing ?? [])];
+    let added = 0;
+    for (const block of incoming ?? []) {
+      // Exact-text comparison. Two different armorings of the same key would not
+      // dedupe, but openpgp reconciles duplicate fingerprints when the keyring
+      // loads, so the cost is a redundant block rather than a wrong keyring.
+      if (!blocks.includes(block)) {
+        blocks.push(block);
+        added += 1;
+      }
+    }
+    return {value: blocks, added};
+  }
+  if (typeof existing !== 'object' || typeof incoming !== 'object') {
+    return {value: existing, added: 0};
+  }
+  // Per-entry merge with the device winning, which keeps a device's own default_key
+  // and its own Autocrypt records intact.
+  const merged = {...existing};
+  let added = 0;
+  for (const [key, value] of Object.entries(incoming ?? {})) {
+    if (!(key in merged)) {
+      merged[key] = value;
+      added += 1;
+    } else if (value && typeof value === 'object' && typeof merged[key] === 'object') {
+      merged[key] = {...value, ...merged[key]};
+    }
+  }
+  return {value: merged, added};
+}
+
+/**
  * Parse a device file back into a storage value.
  * @param {String} content
  * @param {String} format - 'asc' or 'json'

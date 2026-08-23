@@ -314,13 +314,24 @@ export async function migrateLocalKeyMaterial() {
   const all = await readLocalStorage();
   const moved = [];
   const failed = [];
+  let addedTotal = 0;
   for (const [key, value] of Object.entries(all)) {
     const route = router.classify(key);
     if (route.target !== router.TARGET.DEVICE) {
       continue;
     }
     try {
-      const serialized = router.serialize(value, route.format);
+      // Merge with whatever the device already holds. Writing the local value
+      // straight over the path destroyed an existing keystore's keys, recoverable
+      // only from the .bak the atomic write happens to leave behind.
+      let onDevice;
+      try {
+        onDevice = router.deserialize(await backend.readFile(route.path), route.format);
+      } catch (e) {
+        onDevice = undefined; // nothing there yet
+      }
+      const {value: combined, added} = router.mergeForDevice(onDevice, value, route.format);
+      const serialized = router.serialize(combined, route.format);
       await backend.writeFile(route.path, serialized);
       const readBack = await backend.readFile(route.path);
       if (readBack !== serialized) {
@@ -328,6 +339,7 @@ export async function migrateLocalKeyMaterial() {
       }
       await chrome.storage.local.remove(key);
       moved.push(key);
+      addedTotal += added;
     } catch (e) {
       failed.push({key, error: e.message});
     }
@@ -341,7 +353,16 @@ export async function migrateLocalKeyMaterial() {
       const {device, local} = router.splitAttributes(attributes);
       if (Object.keys(device).length) {
         const route = router.classify(router.KEYRING_ATTRIBUTES_KEY);
-        const serialized = router.serialize(device, route.format);
+        let onDevice;
+        try {
+          onDevice = router.deserialize(await backend.readFile(route.path), route.format);
+        } catch (e) {
+          onDevice = undefined;
+        }
+        // Device wins on conflict, so migrating does not repoint an existing
+        // keystore's default key at a key that has just arrived.
+        const {value: combined} = router.mergeForDevice(onDevice, device, route.format);
+        const serialized = router.serialize(combined, route.format);
         await backend.writeFile(route.path, serialized);
         if (await backend.readFile(route.path) !== serialized) {
           throw new Error('verification after write failed');
@@ -353,7 +374,7 @@ export async function migrateLocalKeyMaterial() {
       failed.push({key: router.KEYRING_ATTRIBUTES_KEY, error: e.message});
     }
   }
-  return {moved, failed};
+  return {moved, failed, added: addedTotal};
 }
 
 /**
