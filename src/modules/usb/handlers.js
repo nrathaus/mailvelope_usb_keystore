@@ -21,7 +21,11 @@ export function registerUsbHandlers(controller) {
   // alarm has not fired. One small file read.
   controller.on('usb-get-status', () => provision.reprobe());
   controller.on('usb-probe', () => provision.reprobe());
-  controller.on('usb-provision', ({label} = {}) => provision.provision({label}));
+  // Forward adopt explicitly. Dropping it silently made the "use this folder
+  // anyway" override impossible: provisioning always saw adopt as undefined, so the
+  // identity guard refused every attempt, including the one the user had just
+  // authorised.
+  controller.on('usb-provision', ({label, adopt} = {}) => provision.provision({label, adopt}));
   controller.on('usb-disable', () => provision.disable());
   controller.on('usb-diagnostics', () => provision.diagnostics());
   controller.on('usb-inspect-local', () => provision.inspectLocalKeyMaterial());

@@ -80,7 +80,7 @@ describe('usb/handlers', () => {
     expect(provision.reprobe).toHaveBeenCalled();
 
     await controller.handlers.get('usb-provision')({label: 'stick'});
-    expect(provision.provision).toHaveBeenCalledWith({label: 'stick'});
+    expect(provision.provision).toHaveBeenCalledWith({label: 'stick', adopt: undefined});
 
     await controller.handlers.get('usb-disable')();
     expect(provision.disable).toHaveBeenCalled();
@@ -97,7 +97,15 @@ describe('usb/handlers', () => {
 
   it('tolerates usb-provision being called with no arguments', async () => {
     await controller.handlers.get('usb-provision')();
-    expect(provision.provision).toHaveBeenCalledWith({label: undefined});
+    expect(provision.provision).toHaveBeenCalledWith({label: undefined, adopt: undefined});
+  });
+
+  // This assertion previously read toHaveBeenCalledWith({label}) and passed only
+  // because the handler dropped adopt -- encoding the bug as expected behaviour and
+  // making the "use this folder anyway" override impossible.
+  it('forwards the adopt flag the user explicitly granted', async () => {
+    await controller.handlers.get('usb-provision')({label: 'stick', adopt: true});
+    expect(provision.provision).toHaveBeenCalledWith({label: 'stick', adopt: true});
   });
 
   it('pushes status changes to the view', () => {
