@@ -27,6 +27,7 @@ let detail = null;
 let enabled = false;
 let label = null;
 let keystoreId = null;
+let checkedAt = null;
 const listeners = new Set();
 
 /**
@@ -55,7 +56,7 @@ export function getStatus() {
   // label is the picked folder's name. Chrome does not expose a handle's full path,
   // so this is the most specific location the UI can show -- enough to tell one
   // configured device from another.
-  return {state, detail, supported: Boolean(backend), enabled, label, keystoreId};
+  return {state, detail, supported: Boolean(backend), enabled, label, keystoreId, checkedAt};
 }
 
 export function isUsable() {
@@ -215,6 +216,7 @@ export function republish() {
  */
 export async function probe() {
   const next = await computeState();
+  checkedAt = Date.now();
   transition(next.state, next.detail);
   return state;
 }

@@ -32,6 +32,10 @@ export const strings = {
   setup_card_button: 'Set up USB keystore',
 
   status_heading: 'Device status',
+  status_checked_now: 'checked just now',
+  status_checked_ago: 'checked $1s ago',
+  status_checking_live: 'rechecking every second while this page is open',
+  status_checking_background: 'rechecking every 30 seconds in the background',
   status_folder: 'Folder',
   status_folder_unknown: 'not selected yet',
   status_path_note: 'Keys are kept in a “mailvelope-keystore” folder inside it. Browsers only report the folder name, not its full path.',

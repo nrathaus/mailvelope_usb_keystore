@@ -205,6 +205,19 @@ export default class KeyStorageSettings extends React.Component {
     );
   }
 
+  /**
+   * How recently the device was checked, in words.
+   * @return {String}
+   */
+  describeFreshness() {
+    const checkedAt = this.state.status?.checkedAt;
+    if (!checkedAt) {
+      return '';
+    }
+    const seconds = Math.max(0, Math.round((Date.now() - checkedAt) / 1000));
+    return seconds < 2 ? strings.status_checked_now : strings.status_checked_ago.replace('$1', String(seconds));
+  }
+
   renderDevicePanel() {
     const {status, diagnostics, busy} = this.state;
     const configured = Boolean(status?.enabled);
@@ -212,9 +225,18 @@ export default class KeyStorageSettings extends React.Component {
       <div className="card mb-4">
         <div className="card-body">
           <h3 className="h6">{strings.status_heading}</h3>
-          <p className="mb-3">
+          <p className="mb-1">
             <span className={`badge badge-${statusVariant(status)} mr-2`}>{status?.state ?? '…'}</span>
             {describeState(status?.state)}
+          </p>
+          {/* Freshness rather than a countdown: while this page is visible the
+              device is rechecked every second, so a countdown would just flicker.
+              What is worth showing is that the status is live and how recently it
+              was confirmed -- and if this stops advancing, checking has stopped. */}
+          <p className="text-muted small mb-3">
+            {this.describeFreshness()}
+            {' · '}
+            {document.visibilityState === 'visible' ? strings.status_checking_live : strings.status_checking_background}
           </p>
           {configured && (
             <dl className="row small mb-3">
