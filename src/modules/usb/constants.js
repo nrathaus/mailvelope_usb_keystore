@@ -63,5 +63,25 @@ export const KEYSTORE_VERSION = 1;
 
 /** chrome.alarms name for the periodic presence probe. */
 export const PROBE_ALARM = 'mvelo.usb.probe';
-/** Probe period in minutes. 1 is the practical Chrome MV3 floor. */
-export const PROBE_PERIOD_MINUTES = 1;
+/**
+ * Probe period in minutes. 0.5 (30s) is Chrome's floor for a periodic alarm.
+ *
+ * This is only the backstop for when nobody is looking. A timer is the wrong
+ * instrument for "the user is watching the page" -- see FOCUS_PROBE_INTERVAL_MS.
+ */
+export const PROBE_PERIOD_MINUTES = 0.5;
+
+/**
+ * How often a *visible* Mailvelope page re-checks the device.
+ *
+ * Not subject to the alarm floor, and this is the number that governs perceived
+ * latency: detection only feels slow while someone is looking at the page. Each
+ * check is one small marker-file read, and polling stops the moment the page is
+ * hidden or the last subscriber goes away, so an idle browser does no device I/O
+ * beyond the 30-second alarm.
+ *
+ * The cost of 1s is that a visible page keeps a removable device from idling. That
+ * is a real but small price on flash media, and it only applies while a Mailvelope
+ * page is actually in front of the user.
+ */
+export const FOCUS_PROBE_INTERVAL_MS = 1000;

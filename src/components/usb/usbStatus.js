@@ -11,7 +11,7 @@
  */
 
 import {useEffect, useState} from 'react';
-import {USB_STATE} from '../../modules/usb/constants';
+import {USB_STATE, FOCUS_PROBE_INTERVAL_MS} from '../../modules/usb/constants';
 
 /** Storage locations offered in the UI. */
 export const STORAGE = {LOCAL: 'local', USB: 'usb'};
@@ -33,6 +33,43 @@ function wire(port) {
   }
   wiredPort = port;
   port.on('usb-status-changed', publish);
+  if (typeof document !== 'undefined') {
+    // Check the moment the page is looked at again, rather than waiting for the
+    // next tick of any timer.
+    document.addEventListener('visibilitychange', () => {
+      updatePolling(port);
+      if (document.visibilityState === 'visible') {
+        port.send('usb-get-status').then(publish).catch(() => {});
+      }
+    });
+    window.addEventListener('focus', () => {
+      port.send('usb-get-status').then(publish).catch(() => {});
+    });
+  }
+}
+
+let pollTimer = null;
+
+/**
+ * Poll the device while this page is visible.
+ *
+ * The background alarm cannot run faster than every 30 seconds, which is a long
+ * time to stare at a page that is telling you the wrong thing. Someone looking at
+ * Mailvelope is exactly when latency is felt, so poll quickly then and stop as soon
+ * as the page is hidden or nobody is subscribed.
+ * @param {EventHandler} port
+ */
+function updatePolling(port) {
+  const shouldPoll = subscribers.size > 0 &&
+    (typeof document === 'undefined' || document.visibilityState === 'visible');
+  if (shouldPoll && !pollTimer) {
+    pollTimer = setInterval(() => {
+      port.send('usb-get-status').then(publish).catch(() => {});
+    }, FOCUS_PROBE_INTERVAL_MS);
+  } else if (!shouldPoll && pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
 /**
@@ -47,10 +84,14 @@ export function subscribeStatus(port, onStatus) {
   subscribers.add(onStatus);
   if (lastStatus) {
     onStatus(lastStatus);
-  } else {
-    port.send('usb-get-status').then(publish).catch(() => {});
   }
-  return () => subscribers.delete(onStatus);
+  // Always ask, even with a cached value: the cache may predate a device change.
+  port.send('usb-get-status').then(publish).catch(() => {});
+  updatePolling(port);
+  return () => {
+    subscribers.delete(onStatus);
+    updatePolling(port);
+  };
 }
 
 /** Push a status obtained out of band (e.g. as an action's return value). */
