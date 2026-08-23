@@ -268,11 +268,11 @@ export default class Key extends React.Component {
         <div className="card-title d-flex align-items-center justify-content-between flex-wrap">
           <h2 className="d-inline-flex align-items-center">{this.state.keyDetails.name} <KeyStatus className="small ml-2" status={this.state.keyDetails.status} /></h2>
           <div className="btn-bar">
-            {(!this.context.gnupg || this.state.keyDetails.type === 'public') && <button type="button" onClick={() => this.setState({showDeleteModal: true})} className="btn btn-secondary" title={l10n.map.key_remove_btn_title}>{l10n.map.key_remove_btn}</button>}
+            {(!this.context.gnupg || this.state.keyDetails.type === 'public') && <button type="button" onClick={() => this.setState({showDeleteModal: true})} className="btn btn-secondary" disabled={this.props.canModify === false} title={this.props.cannotModifyReason || l10n.map.key_remove_btn_title}>{l10n.map.key_remove_btn}</button>}
             <button type="button" onClick={() => this.setState({showExportModal: true})} className="btn btn-secondary" title={l10n.map.key_export_btn_title}>{l10n.map.key_export_btn}</button>
             {(!this.context.gnupg && this.state.keyDetails.type !== 'public') &&
               <>
-                <button type="button" onClick={() => this.setState({showRevokeModal: true})} className="btn btn-secondary" disabled={!this.state.keyDetails.validity} title={l10n.map.key_revoke_btn_title}>{l10n.map.key_revoke_btn}</button>
+                <button type="button" onClick={() => this.setState({showRevokeModal: true})} className="btn btn-secondary" disabled={!this.state.keyDetails.validity || this.props.canModify === false} title={this.props.cannotModifyReason || l10n.map.key_revoke_btn_title}>{l10n.map.key_revoke_btn}</button>
                 <DefaultKeyButton onClick={this.handleDefaultClick} isDefault={this.state.isDefault} disabled={!this.state.keyDetails.validDefaultKey} />
               </>
             }
@@ -323,6 +323,10 @@ export default class Key extends React.Component {
 Key.contextType = KeyringOptions;
 
 Key.propTypes = {
+  // Whether the keystore can accept changes. Destructive controls are disabled
+  // rather than offered and then refused; see canModifyKeys.
+  canModify: PropTypes.bool,
+  cannotModifyReason: PropTypes.string,
   keyData: PropTypes.object,
   getKeyDetails: PropTypes.func,
   defaultKeyFpr: PropTypes.string,

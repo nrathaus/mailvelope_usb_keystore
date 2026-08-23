@@ -14,6 +14,7 @@ import Modal from '../../components/util/Modal';
 import Alert from '../../components/util/Alert';
 import SimpleDialog from '../../components/util/SimpleDialog';
 import KeyringSelect from './components/KeyringSelect';
+import UsbStatusBadge from '../../components/usb/UsbStatusBadge';
 import {Redirect, Link} from 'react-router-dom';
 import './KeyGrid.scss';
 
@@ -168,16 +169,30 @@ export default class KeyGrid extends React.Component {
       <div className="card-body">
         <div className="card-title d-flex flex-wrap align-items-center">
           <h1 className="flex-shrink-0 mr-auto">{l10n.map.keyring_header}</h1>
+          {/* Where the keys actually live belongs on the page that lists them. The
+              badge was previously only on the import and generate headings, which
+              are the least useful places for it. */}
+          <div className="flex-shrink-0 mr-3">
+            <UsbStatusBadge />
+          </div>
           <div className="flex-shrink-0">
             <KeyringSelect keyringId={this.context.keyringId} keyringAttr={this.props.keyringAttr} onChange={this.props.onChangeKeyring} onDelete={(keyringId, keyringName) => this.setState({showDeleteKeyringModal: true, activeKeyring: {id: keyringId, name: keyringName}})} prefs={this.props.prefs} />
           </div>
         </div>
         <div className="form-group btn-toolbar justify-content-between" role="toolbar" aria-label="Toolbar with button groups">
           <div className="btn-bar">
-            <Link className="btn btn-secondary" to="/keyring/generate" replace tabIndex="0" title={l10n.map.keygrid_generate_title}>
+            <Link className={`btn btn-secondary ${this.props.canModify === false ? 'disabled' : ''}`}
+              to="/keyring/generate" replace tabIndex={this.props.canModify === false ? '-1' : '0'}
+              aria-disabled={this.props.canModify === false}
+              onClick={event => this.props.canModify === false && event.preventDefault()}
+              title={this.props.cannotModifyReason || l10n.map.keygrid_generate_title}>
               <span className="icon icon-add" aria-hidden="true"></span> {l10n.map.key_gen_generate}
             </Link>
-            <Link className="btn btn-secondary" to="/keyring/import" replace tabIndex="0" title={l10n.map.keygrid_import_title}>
+            <Link className={`btn btn-secondary ${this.props.canModify === false ? 'disabled' : ''}`}
+              to="/keyring/import" replace tabIndex={this.props.canModify === false ? '-1' : '0'}
+              aria-disabled={this.props.canModify === false}
+              onClick={event => this.props.canModify === false && event.preventDefault()}
+              title={this.props.cannotModifyReason || l10n.map.keygrid_import_title}>
               <span className="icon icon-download" aria-hidden="true"></span> {l10n.map.form_import}
             </Link>
             <Link className={`btn btn-secondary ${this.context.demail ? 'd-none' : ''}`} to="/keyring/import/search" replace tabIndex="0" title={l10n.map.keygrid_import_search_title}>
@@ -278,6 +293,11 @@ KeyGrid.propTypes = {
   onDeleteKeyring: PropTypes.func.isRequired,
   onChangeDefaultKey: PropTypes.func.isRequired,
   onDeleteKey: PropTypes.func,
+  // Whether the keystore can accept changes; see canModifyKeys. Generate and Import
+  // are Links, so they are disabled by class and a prevented click rather than the
+  // disabled attribute, which anchors do not have.
+  canModify: PropTypes.bool,
+  cannotModifyReason: PropTypes.string,
   onRefreshKeyring: PropTypes.func,
   spinner: PropTypes.bool,
   location: PropTypes.object,

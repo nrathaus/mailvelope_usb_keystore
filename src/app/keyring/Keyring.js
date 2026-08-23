@@ -20,8 +20,7 @@ import Spinner from '../../components/util/Spinner';
 import KeyringSelect from './components/KeyringSelect';
 import KeyringBreadcrumb from './components/KeyringBreadcrumb';
 import Notifications from '../../components/util/Notifications';
-import UsbStatusBadge from '../../components/usb/UsbStatusBadge';
-import {subscribeStatus, isUnavailable} from '../../components/usb/usbStatus';
+import {subscribeStatus, isUnavailable, canModifyKeys, whyCannotModify} from '../../components/usb/usbStatus';
 
 l10n.register([
   'keyring_generate_key',
@@ -36,7 +35,6 @@ function PageTitle({children}) {
   return (
     <div className="card-title d-flex flex-wrap align-items-center">
       <h1 className="flex-shrink-0 mr-auto">{children}</h1>
-      <UsbStatusBadge />
     </div>
   );
 }
@@ -175,7 +173,20 @@ class Keyring extends React.Component {
   }
 
   async handleDeleteKey(fingerprint, type) {
-    await port.send('removeKey', {fingerprint, type, keyringId: this.state.keyringId});
+    try {
+      await port.send('removeKey', {fingerprint, type, keyringId: this.state.keyringId});
+    } catch (e) {
+      // A swallowed failure here is worse than a visible one: the keyring mutates
+      // memory before persisting, so a refused write made the key vanish from the
+      // list while it remained on the device. Someone deleting a compromised key
+      // would believe it gone.
+      this.handleNotification({
+        header: l10n.map.keyring_header,
+        message: e.message,
+        type: 'error',
+        hideDelay: 10000
+      });
+    }
     this.loadKeyring();
   }
 
@@ -207,9 +218,9 @@ class Keyring extends React.Component {
               ) : (
                 <>
                   <Route exact path="/keyring" render={() => this.state.keys.length || this.state.setupSkipped || this.state.hasUsablePrivateKey ? <Redirect to="/keyring/display" /> : <Redirect to="/keyring/setup" />} />
-                  <Route exact path="/keyring/key/:keyFpr" render={props => <Key {...props} keyData={this.state.keys.find(key => key.fingerprint === props.match.params.keyFpr)} defaultKeyFpr={this.state.defaultKeyFpr} onChangeDefaultKey={this.handleChangeDefaultKey} onDeleteKey={this.handleDeleteKey} onKeyringChange={this.loadKeyring} />} />
+                  <Route exact path="/keyring/key/:keyFpr" render={props => <Key {...props} keyData={this.state.keys.find(key => key.fingerprint === props.match.params.keyFpr)} defaultKeyFpr={this.state.defaultKeyFpr} onChangeDefaultKey={this.handleChangeDefaultKey} onDeleteKey={this.handleDeleteKey} onKeyringChange={this.loadKeyring} canModify={canModifyKeys(this.state.usbStatus)} cannotModifyReason={whyCannotModify(this.state.usbStatus)} />} />
                   <Route exact path="/keyring/key/:keyFpr/user/:userIdx" render={props => <User {...props} keyData={this.state.keys.find(key => key.fingerprint === props.match.params.keyFpr)} onKeyringChange={this.loadKeyring} />} />
-                  <Route path="/keyring/display/:keyId?" render={props => (<KeyGrid keys={this.state.keys} {...props} keyringAttr={this.state.keyringAttr} onChangeKeyring={this.handleChangeKeyring} onDeleteKeyring={this.handleDeleteKeyring} prefs={this.props.prefs} defaultKeyFpr={this.state.defaultKeyFpr} onChangeDefaultKey={this.handleChangeDefaultKey} onDeleteKey={this.handleDeleteKey} onRefreshKeyring={this.handleRefreshKeyring} spinner={this.state.keysLoading} />)} />
+                  <Route path="/keyring/display/:keyId?" render={props => (<KeyGrid keys={this.state.keys} {...props} keyringAttr={this.state.keyringAttr} onChangeKeyring={this.handleChangeKeyring} onDeleteKeyring={this.handleDeleteKeyring} prefs={this.props.prefs} defaultKeyFpr={this.state.defaultKeyFpr} onChangeDefaultKey={this.handleChangeDefaultKey} onDeleteKey={this.handleDeleteKey} onRefreshKeyring={this.handleRefreshKeyring} spinner={this.state.keysLoading} canModify={canModifyKeys(this.state.usbStatus)} cannotModifyReason={whyCannotModify(this.state.usbStatus)} />)} />
                   <Route path="/keyring/import" render={({location}) => (
                     <div className="card-body">
                       <KeyringBreadcrumb />
