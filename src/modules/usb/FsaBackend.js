@@ -9,6 +9,7 @@
  * backend works in the MV3 service worker, which cannot open a picker itself.
  */
 
+import {isChrome} from '../../lib/browser';
 import * as handleStore from './handleStore';
 import {UsbBackend, NotFoundError, DeviceUnavailableError} from './backend';
 
@@ -32,10 +33,15 @@ export default class FsaBackend extends UsbBackend {
   }
 
   static isSupported() {
-    // FileSystemDirectoryHandle exists in both window and worker scopes; the
-    // picker itself is only reachable from a document, which is why provisioning
-    // happens in the app page.
-    return typeof FileSystemDirectoryHandle !== 'undefined';
+    // Two conditions, and the browser check is the load-bearing one.
+    //
+    // Firefox implements FileSystemDirectoryHandle for the origin-private file
+    // system, so testing for that alone reports support there -- even though
+    // Firefox has no showDirectoryPicker and cannot reach a USB device at all.
+    // The picker cannot be tested for directly, because it does not exist in the
+    // background context in any browser; that is why provisioning happens in the
+    // app page. So the browser itself is the only usable signal here.
+    return isChrome && typeof FileSystemDirectoryHandle !== 'undefined';
   }
 
   /**
