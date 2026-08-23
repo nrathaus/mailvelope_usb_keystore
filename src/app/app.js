@@ -32,6 +32,7 @@ import Settings from './settings/Settings';
 import AnalyticsConsent from './settings/AnalyticsConsent';
 import Onboarding from './onboarding/Onboarding';
 import UsbStatusBanner from '../components/usb/UsbStatusBanner';
+import UsbErrorToast from '../components/usb/UsbErrorToast';
 
 import './app.scss';
 
@@ -122,6 +123,7 @@ class App extends React.Component {
 
         <main className={`container-lg ${(this.state.prefs && !this.state.prefs.security.personalized && this.props.location.pathname !== '/settings/security-background') ? 'featured' : ''}`} role="main">
           <UsbStatusBanner />
+          <UsbErrorToast />
           <AppOptions.Provider value={{gnupg: this.state.gnupg}}>
             <Route path="/dashboard" component={Dashboard} />
             <Route path="/keyring" render={() => <Keyring prefs={this.state.prefs} />} />

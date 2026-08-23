@@ -85,6 +85,43 @@ describe('NativeBackend.isSupported', () => {
     });
   });
 
+  describe('probe', () => {
+    function withHost(reply) {
+      global.chrome.runtime = {
+        sendNativeMessage: jest.fn(() => Promise.resolve(reply)),
+        lastError: undefined
+      };
+    }
+
+    // probe() discarded the helper's answer and returned a fixed object, so a
+    // write-protected device still reported as fully usable and the write was
+    // attempted anyway. The helper is the only source that can answer this before
+    // a write, since the File System Access API cannot.
+    it('forwards writability reported by the helper', async () => {
+      withHost({result: {version: 1, writable: false}});
+      const backend = new NativeBackend();
+      backend.setRoot('/run/media/u/STICK');
+      // hello and probe both answer from the same stub, which is enough here.
+      const result = await backend.probe();
+      expect(result.writable).toBe(false);
+    });
+
+    it('treats a writable device as writable', async () => {
+      withHost({result: {version: 1, writable: true}});
+      const backend = new NativeBackend();
+      backend.setRoot('/run/media/u/STICK');
+      expect((await backend.probe()).writable).toBe(true);
+    });
+
+    // An older helper that does not report the field must not be read as read-only.
+    it('assumes writable when the helper does not say', async () => {
+      withHost({result: {version: 1}});
+      const backend = new NativeBackend();
+      backend.setRoot('/run/media/u/STICK');
+      expect((await backend.probe()).writable).toBe(true);
+    });
+  });
+
   // Calling without the permission must name the permission, not blame the helper:
   // telling someone to install software they already have is worse than silence.
   it('reports a missing permission distinctly from a missing helper', async () => {

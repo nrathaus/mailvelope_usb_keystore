@@ -195,8 +195,9 @@ export default class NativeBackend extends UsbBackend {
     if (!this.root) {
       return {available: false, permission: 'granted', configured: false};
     }
+    let probe;
     try {
-      await this.send({op: 'probe', root: this.root});
+      probe = await this.send({op: 'probe', root: this.root});
     } catch (e) {
       if (e instanceof DeviceUnavailableError || e instanceof NotFoundError) {
         return {available: false, permission: 'granted', configured: true};
@@ -206,7 +207,16 @@ export default class NativeBackend extends UsbBackend {
     // No permission model here: authority comes from having installed the host, so
     // there is no per-session grant to lose. Reported as granted so the state
     // machine never asks the user to reconnect.
-    return {available: true, permission: 'granted', configured: true};
+    //
+    // writable is forwarded rather than discarded: the helper can answer it directly
+    // where the File System Access API cannot, so this is the one path that knows a
+    // device is write-protected before attempting a write.
+    return {
+      available: true,
+      permission: 'granted',
+      configured: true,
+      writable: probe.writable !== false
+    };
   }
 
   async readFile(path) {
