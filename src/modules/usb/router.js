@@ -43,7 +43,11 @@ const CRYPTO_ATTR_FIELDS = ['default_key', 'primary_key', 'sync_data', 'key_bind
 const LOCAL_ALLOWLIST = [
   'mvelo.preferences',
   'mvelo.watchlist',
-  USB_CONFIG_KEY
+  USB_CONFIG_KEY,
+  // Diagnostics, off by default, and by policy free of key material. Allowlisted so
+  // the leak safety net does not have to guess about them.
+  'mvelo.usb.debug',
+  'mvelo.usb.debugEnabled'
 ];
 const LOCAL_ALLOWLIST_PREFIXES = ['mvelo.oauth.'];
 
