@@ -16,8 +16,9 @@
 
 import {
   USB_STATE, UNUSABLE_STATES, USB_CONFIG_KEY, DEVICE_ROOT, MARKER_FILE,
-  PROBE_ALARM, PROBE_PERIOD_MINUTES
+  PROBE_ALARM, PROBE_PERIOD_MINUTES, USB_READ_ONLY
 } from './constants';
+import {MvError} from '../../lib/util';
 import {NotFoundError, DeviceUnavailableError} from './backend';
 import FsaBackend from './FsaBackend';
 import NativeBackend from './NativeBackend';
@@ -83,7 +84,24 @@ export function getStatus() {
   };
 }
 
+/**
+ * Whether key material may be read. A read-only device is still readable, so it
+ * counts here -- keys on a write-protected stick must remain usable for decryption.
+ * @return {Boolean}
+ */
 export function isUsable() {
+  return state === USB_STATE.READY || state === USB_STATE.READ_ONLY;
+}
+
+/**
+ * Whether key material may be written.
+ *
+ * Separate from isUsable() because a delete or a save that silently fails is worse
+ * than one that refuses: a key deleted because it was compromised, appearing to
+ * vanish while still on the device, leaves the user believing it is gone.
+ * @return {Boolean}
+ */
+export function isWritable() {
   return state === USB_STATE.READY;
 }
 
@@ -215,6 +233,11 @@ async function computeState() {
   if (marker?.keystoreId !== config.keystoreId) {
     return {state: USB_STATE.WRONG_DEVICE, detail: marker?.label ?? null};
   }
+  // The native host reports writability directly. The File System Access API cannot,
+  // so there READ_ONLY is reached reactively, when a write is refused.
+  if (probe.writable === false) {
+    return {state: USB_STATE.READ_ONLY, detail: null};
+  }
   return {state: USB_STATE.READY, detail: null};
 }
 
@@ -260,6 +283,27 @@ export async function assertUsable(reprobe = false) {
   }
   if (!isUsable()) {
     throw new DeviceUnavailableError(`USB keystore is not available (${state})`);
+  }
+}
+
+/**
+ * Throw unless key material may be written right now.
+ * @param {Boolean} [reprobe]
+ */
+export async function assertWritable(reprobe = false) {
+  await assertUsable(reprobe);
+  if (!isWritable()) {
+    throw new MvError(
+      'The USB device is write-protected, so this change cannot be saved.',
+      USB_READ_ONLY
+    );
+  }
+}
+
+/** Record that a write was refused, so the state reflects it until the next probe. */
+export function markReadOnly() {
+  if (state === USB_STATE.READY) {
+    transition(USB_STATE.READ_ONLY, null);
   }
 }
 

@@ -24,6 +24,7 @@ export const strings = {
   storage_indicator_local: 'Stored on this computer',
   storage_indicator_usb: 'Stored on USB device',
   storage_indicator_usb_disconnected: 'USB device disconnected',
+  storage_indicator_usb_read_only: 'USB device write-protected',
   storage_switch_to_usb: 'Choose the USB device',
   storage_switch_back_warning: 'Switching back to this computer does not copy any keys back. The keys stay on the device and this profile loses access to them.',
 
@@ -31,6 +32,7 @@ export const strings = {
   setup_card_text: 'Keep your keys on a removable USB device instead of on this computer. Encryption is only possible while the device is connected.',
   setup_card_button: 'Set up USB keystore',
 
+  operation_failed: 'That change could not be saved',
   status_heading: 'Device status',
   status_checked_now: 'checked just now',
   status_checked_ago: 'checked $1s ago',
@@ -46,6 +48,7 @@ export const strings = {
   status_permission_required: 'Permission to access the keystore directory is needed. Click “Reconnect” to restore it.',
   status_absent: 'The USB keystore is not available. Connect the device to use your keys.',
   status_wrong_device: 'The connected device is not this profile’s keystore.',
+  status_read_only: 'The device is write-protected. Your keys can be used, but changes cannot be saved.',
   status_error: 'The USB keystore could not be read.',
 
   banner_unavailable_heading: 'USB keystore not available',
@@ -115,6 +118,7 @@ export function describeState(state) {
     case USB_STATE.PERMISSION_REQUIRED: return strings.status_permission_required;
     case USB_STATE.ABSENT: return strings.status_absent;
     case USB_STATE.WRONG_DEVICE: return strings.status_wrong_device;
+    case USB_STATE.READ_ONLY: return strings.status_read_only;
     default: return strings.status_error;
   }
 }

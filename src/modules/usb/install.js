@@ -70,9 +70,36 @@ async function readDevice(route) {
 
 async function writeDevice(route, value) {
   // Reprobe before writing: a stale READY reading would otherwise let a write be
-  // attempted against a device that has just been pulled.
-  await state.assertUsable(true);
-  await state.getBackend().writeFile(route.path, router.serialize(value, route.format));
+  // attempted against a device that has just been pulled. assertWritable also
+  // refuses a device that is present but write-protected, before the caller has
+  // mutated anything.
+  await state.assertWritable(true);
+  try {
+    await state.getBackend().writeFile(route.path, router.serialize(value, route.format));
+  } catch (e) {
+    if (isReadOnlyFailure(e)) {
+      // The File System Access API cannot report writability in advance, so this is
+      // where a write-protected device is discovered. Record it so the state, and
+      // therefore the message, is right from now on.
+      state.markReadOnly();
+    }
+    // Callers mutate the in-memory keyring before persisting, so a failed write
+    // leaves memory disagreeing with the device -- a deleted key appears gone while
+    // it is still there. Reload so what the user sees is what is actually stored,
+    // which matters most for a delete they believe succeeded.
+    reloadKeyringsFromDevice();
+    throw e;
+  }
+}
+
+/** Whether a write failure looks like a write-protected device. */
+function isReadOnlyFailure(error) {
+  const name = error?.name ?? '';
+  const message = error?.message ?? '';
+  return error?.code === 'USB_READ_ONLY' ||
+    name === 'NoModificationAllowedError' ||
+    name === 'NotAllowedError' ||
+    /read-only|readonly|EROFS|not permitted/i.test(message);
 }
 
 async function removeDevice(route) {

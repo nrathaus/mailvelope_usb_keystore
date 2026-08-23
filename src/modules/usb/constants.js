@@ -23,6 +23,14 @@ export const USB_STATE = {
   WRONG_DEVICE: 'WRONG_DEVICE',
   /** I/O failure or a corrupt keystore. */
   ERROR: 'ERROR',
+  /**
+   * Present and readable, but writes are refused.
+   *
+   * Not exotic: FAT mounts commonly carry errors=remount-ro, so a filesystem error
+   * silently makes a stick read-only. Without a state for it, a failed save
+   * surfaces as a raw platform error, and a delete appears to succeed.
+   */
+  READ_ONLY: 'READ_ONLY',
   /** Everything usable. */
   READY: 'READY'
 };
@@ -39,6 +47,9 @@ export const UNUSABLE_STATES = [
 
 /** Error code raised whenever a crypto operation is attempted without the device. */
 export const USB_KEYSTORE_UNAVAILABLE = 'USB_KEYSTORE_UNAVAILABLE';
+
+/** Raised when the device is readable but refuses writes. */
+export const USB_READ_ONLY = 'USB_READ_ONLY';
 
 /** chrome.storage.local key holding the USB keystore configuration (no key material). */
 export const USB_CONFIG_KEY = 'mvelo.usb.config';

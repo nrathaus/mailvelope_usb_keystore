@@ -332,6 +332,75 @@ describe('usb/install storage interception', () => {
     });
   });
 
+  describe('a write-protected device', () => {
+    // FAT mounts commonly carry errors=remount-ro, so a filesystem error silently
+    // makes a stick read-only. Without a state for it, a delete appeared to succeed:
+    // the keyring mutates memory before persisting, so the key vanished from the UI
+    // while remaining on the device. A key deleted because it was compromised,
+    // appearing gone while still there, is the dangerous version of that.
+    async function bootReadOnly() {
+      seedStorage({[constants.USB_CONFIG_KEY]: {keystoreId: KEYSTORE_ID}});
+      device['mailvelope-keystore/keystore.json'] = JSON.stringify({keystoreId: KEYSTORE_ID});
+      mocks.probe.mockResolvedValue({
+        available: true, permission: 'granted', configured: true, writable: false
+      });
+      await install.installUsbKeystore();
+    }
+
+    it('is READ_ONLY, not ABSENT: the keys still work', async () => {
+      await bootReadOnly();
+      expect(state.getState()).toBe(constants.USB_STATE.READ_ONLY);
+      expect(state.isUsable()).toBe(true);
+      expect(state.isWritable()).toBe(false);
+    });
+
+    it('still reads keys from the device', async () => {
+      await bootReadOnly();
+      const path = `mailvelope-keystore/keyrings/${Buffer.from(MAIN).toString('hex')}/private.asc`;
+      device[path] = PRIVATE_ARMORED;
+      expect(await mvelo.storage.get(PRIV_KEY)).toEqual([PRIVATE_ARMORED]);
+    });
+
+    it('refuses a write with a message naming write protection', async () => {
+      await bootReadOnly();
+      await expect(mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED])).rejects.toMatchObject({
+        code: 'USB_READ_ONLY'
+      });
+    });
+
+    it('does not write anything to the device', async () => {
+      await bootReadOnly();
+      mocks.writeFile.mockClear();
+      await mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED]).catch(() => {});
+      expect(mocks.writeFile).not.toHaveBeenCalled();
+    });
+
+    // Discovered reactively on Chromium, where the File System Access API cannot
+    // report writability in advance.
+    it('records read-only when a write is refused by the platform', async () => {
+      await bootReady();
+      const failure = new Error('operation not permitted');
+      failure.name = 'NoModificationAllowedError';
+      mocks.writeFile.mockRejectedValue(failure);
+      await mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED]).catch(() => {});
+      expect(state.getState()).toBe(constants.USB_STATE.READ_ONLY);
+    });
+
+    // Callers mutate the keyring before persisting, so a failed write leaves memory
+    // disagreeing with the device. Reloading is what stops a failed delete looking
+    // like a successful one.
+    it('reloads the keyrings after a failed write', async () => {
+      const {getAll} = require('../../../../src/modules/keyring');
+      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      getAll.mockResolvedValue([{keystore}]);
+      await bootReady();
+      mocks.writeFile.mockRejectedValue(new Error('device gone'));
+      await mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED]).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 0));
+      expect(keystore.load).toHaveBeenCalled();
+    });
+  });
+
   describe('badge arbitration with uiLog', () => {
     // uiLog sets a green 'Ok' on user interaction and clears it 2s later. A clear
     // must restore the USB warning rather than blanking the toolbar.

@@ -12,6 +12,7 @@
 
 import {useEffect, useState} from 'react';
 import {USB_STATE, FOCUS_PROBE_INTERVAL_MS} from '../../modules/usb/constants';
+import {describeState} from '../../modules/usb/strings';
 
 /** Storage locations offered in the UI. */
 export const STORAGE = {LOCAL: 'local', USB: 'usb'};
@@ -135,7 +136,40 @@ export function storageOf(status) {
  * @return {Boolean}
  */
 export function isUnavailable(status) {
-  return Boolean(status?.enabled) && status.state !== USB_STATE.READY;
+  if (!status?.enabled) {
+    return false;
+  }
+  // READ_ONLY is deliberately not "unavailable": the keys are readable and usable,
+  // so treating it as absence would hide them and claim the keystore was missing.
+  return status.state !== USB_STATE.READY && status.state !== USB_STATE.READ_ONLY;
+}
+
+/**
+ * Whether the keystore can accept changes right now.
+ *
+ * Destructive controls should be disabled rather than offered and then refused:
+ * clicking Delete and watching a key disappear -- because the keyring mutates
+ * memory before persisting -- then having it reappear is worse than not being able
+ * to click at all. Especially for a key being deleted because it is compromised.
+ *
+ * True when no keystore is configured, so ordinary local operation is untouched.
+ * @param {Object} status
+ * @return {Boolean}
+ */
+export function canModifyKeys(status) {
+  if (!status?.enabled) {
+    return true;
+  }
+  return status.state === USB_STATE.READY;
+}
+
+/**
+ * Why changes are not possible, for a title attribute on a disabled control.
+ * @param {Object} status
+ * @return {String|undefined}
+ */
+export function whyCannotModify(status) {
+  return canModifyKeys(status) ? undefined : describeState(status?.state);
 }
 
 /**
@@ -152,6 +186,7 @@ export function statusVariant(status) {
       return 'success';
     case USB_STATE.ABSENT:
     case USB_STATE.PERMISSION_REQUIRED:
+    case USB_STATE.READ_ONLY:
       return 'warning';
     default:
       return 'danger';
