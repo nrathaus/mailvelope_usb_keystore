@@ -15,6 +15,7 @@ import {
   DEVICE_ROOT, MARKER_FILE, README_FILE, KEYRINGS_DIR, KEYSTORE_VERSION, USB_STATE
 } from './constants';
 import * as state from './state';
+import {usesNativeHost} from './state';
 import * as router from './router';
 import * as handleStore from './handleStore';
 import {NotFoundError} from './backend';
@@ -136,6 +137,40 @@ export async function regrantPermission() {
   }
   const permission = await handle.requestPermission({mode: 'readwrite'});
   return {granted: permission === 'granted', name: handle.name};
+}
+
+/**
+ * Removable devices the native host can see.
+ *
+ * Only meaningful on the native path: Firefox has no directory picker, so the user
+ * chooses from a list of mounted devices instead of a file dialog.
+ * @return {Promise<Array<{path: String, label: String, writable: Boolean}>>}
+ */
+export async function listDevices() {
+  const backend = state.getBackend();
+  if (!backend?.listDevices) {
+    return [];
+  }
+  return backend.listDevices();
+}
+
+/**
+ * Select a device by path, for the native host path.
+ *
+ * The File System Access backend gets its location from a stored handle produced by
+ * the picker; here the path itself is the configuration, so it is recorded before
+ * provisioning can look at the device.
+ * @param {String} devicePath - as reported by listDevices()
+ * @return {Promise<Object>} status after selection
+ */
+export async function selectDevice(devicePath) {
+  if (!usesNativeHost()) {
+    throw new MvError('Selecting a device by path requires the native helper', 'USB_NOT_NATIVE');
+  }
+  const config = await state.getConfig();
+  await state.setConfig({...(config ?? {}), devicePath});
+  await state.reload();
+  return state.getStatus();
 }
 
 /**

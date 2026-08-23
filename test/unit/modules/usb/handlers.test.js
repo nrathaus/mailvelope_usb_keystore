@@ -13,7 +13,9 @@ jest.mock('../../../../src/modules/usb/provision', () => ({
   disable: jest.fn(),
   diagnostics: jest.fn(),
   inspectLocalKeyMaterial: jest.fn(),
-  migrateLocalKeyMaterial: jest.fn()
+  migrateLocalKeyMaterial: jest.fn(),
+  listDevices: jest.fn(),
+  selectDevice: jest.fn()
 }));
 
 jest.mock('../../../../src/modules/usb/state', () => ({
@@ -59,9 +61,11 @@ describe('usb/handlers', () => {
       'usb-disable',
       'usb-get-status',
       'usb-inspect-local',
+      'usb-list-devices',
       'usb-migrate',
       'usb-probe',
-      'usb-provision'
+      'usb-provision',
+      'usb-select-device'
     ]);
   });
 
@@ -93,6 +97,14 @@ describe('usb/handlers', () => {
 
     await controller.handlers.get('usb-migrate')();
     expect(provision.migrateLocalKeyMaterial).toHaveBeenCalled();
+
+    // Native-host only: Firefox has no directory picker, so a device is chosen
+    // from the list the helper reports rather than through a file dialog.
+    await controller.handlers.get('usb-list-devices')();
+    expect(provision.listDevices).toHaveBeenCalled();
+
+    await controller.handlers.get('usb-select-device')({devicePath: '/run/media/u/X'});
+    expect(provision.selectDevice).toHaveBeenCalledWith('/run/media/u/X');
   });
 
   it('tolerates usb-provision being called with no arguments', async () => {

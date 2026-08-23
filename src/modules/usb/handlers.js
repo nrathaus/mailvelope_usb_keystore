@@ -28,6 +28,10 @@ export function registerUsbHandlers(controller) {
   controller.on('usb-provision', ({label, adopt} = {}) => provision.provision({label, adopt}));
   controller.on('usb-disable', () => provision.disable());
   controller.on('usb-diagnostics', () => provision.diagnostics());
+  // Native-host only: Firefox cannot open a directory picker, so it offers the
+  // mounted devices the helper reports instead.
+  controller.on('usb-list-devices', () => provision.listDevices());
+  controller.on('usb-select-device', ({devicePath} = {}) => provision.selectDevice(devicePath));
   controller.on('usb-inspect-local', () => provision.inspectLocalKeyMaterial());
   controller.on('usb-migrate', () => provision.migrateLocalKeyMaterial());
 

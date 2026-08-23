@@ -20,6 +20,7 @@ import {
 } from './constants';
 import {NotFoundError, DeviceUnavailableError} from './backend';
 import FsaBackend from './FsaBackend';
+import NativeBackend from './NativeBackend';
 
 let backend = null;
 let state = USB_STATE.NOT_CONFIGURED;
@@ -28,6 +29,7 @@ let enabled = false;
 let label = null;
 let keystoreId = null;
 let checkedAt = null;
+let devicePath = null;
 const listeners = new Set();
 
 /**
@@ -38,10 +40,28 @@ const listeners = new Set();
  * @return {UsbBackend|null}
  */
 function selectBackend() {
+  // File System Access first where it exists: it needs no separate install, so it
+  // is the lower-friction path on Chromium. The native host is the only option in
+  // Firefox, and also a fallback for a Chromium build without the API.
   if (FsaBackend.isSupported()) {
     return new FsaBackend();
   }
+  if (NativeBackend.isSupported()) {
+    return new NativeBackend();
+  }
   return null;
+}
+
+/**
+ * Whether the active backend reaches the device through the native host.
+ *
+ * The two differ in ways the UI has to know about: the native path enumerates
+ * devices instead of opening a picker, has a real path to display, and has no
+ * per-session permission to re-grant.
+ * @return {Boolean}
+ */
+export function usesNativeHost() {
+  return backend instanceof NativeBackend;
 }
 
 export function getBackend() {
@@ -56,7 +76,11 @@ export function getStatus() {
   // label is the picked folder's name. Chrome does not expose a handle's full path,
   // so this is the most specific location the UI can show -- enough to tell one
   // configured device from another.
-  return {state, detail, supported: Boolean(backend), enabled, label, keystoreId, checkedAt};
+  return {
+    state, detail, supported: Boolean(backend), enabled, label, keystoreId, checkedAt,
+    native: usesNativeHost(),
+    devicePath
+  };
 }
 
 export function isUsable() {
@@ -154,6 +178,10 @@ async function computeState() {
   enabled = Boolean(config?.keystoreId);
   label = config?.label ?? null;
   keystoreId = config?.keystoreId ?? null;
+  // The File System Access backend recovers its location from the stored handle;
+  // the native host has no handle, so the path travels in the config.
+  devicePath = config?.devicePath ?? null;
+  backend?.setRoot?.(devicePath);
   // Not opting in takes precedence over an unsupported browser: an unconfigured
   // profile is simply upstream Mailvelope, and the setup UI reports separately
   // (via getStatus().supported) whether this browser could support the feature.
