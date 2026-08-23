@@ -42,6 +42,19 @@ jest.mock('../../../../src/modules/usb/handleStore', () => ({
   remove: jest.fn()
 }));
 
+// Two backends exist now, so a test that means "no backend at all" has to say so
+// for both. Native support is off by default here; the Firefox path has its own
+// tests.
+jest.mock('../../../../src/modules/usb/NativeBackend', () => {
+  class FakeNative {
+    static isSupported() {
+      return FakeNative.supported === true;
+    }
+  }
+  FakeNative.supported = false;
+  return {__esModule: true, default: FakeNative};
+});
+
 const KEYSTORE_ID = 'abc123';
 const MAIN = 'localhost|#|mailvelope';
 const PRIV_KEY = `mvelo.keyring.${MAIN}.privateKeys`;
@@ -240,6 +253,32 @@ describe('usb/provision', () => {
       const marker = JSON.parse(device['mailvelope-keystore/keystore.json']);
       expect(marker.label).toBe('fresh');
       expect((await state.getConfig()).keystoreId).toBe(marker.keystoreId);
+    });
+
+    // devicePath is written by selectDevice() on the native path and is the only
+    // thing telling that backend where the device is. Replacing the config rather
+    // than merging dropped it, and the state machine then reported "no keystore
+    // configured" while the label and id were plainly displayed from that config.
+    it('keeps configuration it did not set, such as the native device path', async () => {
+      seedStorage({[constants.USB_CONFIG_KEY]: {devicePath: '/run/media/u/STICK'}});
+      seedDevice({});
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+      await provision.provision({label: 'STICK'});
+      const config = await state.getConfig();
+      expect(config.devicePath).toBe('/run/media/u/STICK');
+      expect(config.keystoreId).toBeTruthy();
+    });
+
+    it('keeps the device path when adopting an existing keystore too', async () => {
+      seedStorage({[constants.USB_CONFIG_KEY]: {devicePath: '/run/media/u/STICK'}});
+      seedDevice({'mailvelope-keystore/keystore.json': JSON.stringify({keystoreId: 'existing', label: 'STICK'})});
+      mocks.probe.mockResolvedValue({available: true, permission: 'granted', configured: true});
+      await state.init();
+      await provision.provision({label: 'STICK'});
+      const config = await state.getConfig();
+      expect(config.devicePath).toBe('/run/media/u/STICK');
+      expect(config.keystoreId).toBe('existing');
     });
 
     it('refuses when the browser has no backend', async () => {

@@ -237,11 +237,24 @@ export async function provision({label, adopt: adoptArg} = {}) {
       // Guidance is not worth failing provisioning over.
       console.log('USB keystore: could not write README', e);
     }
-    await state.setConfig({keystoreId: created.keystoreId, label: created.label, provisioned: created.created});
+    // Merge, do not replace: devicePath is set separately by selectDevice() on the
+    // native path, and dropping it leaves the backend with no root -- which reports
+    // as "no keystore configured" even though one plainly is.
+    await state.setConfig({
+      ...(existing ?? {}),
+      keystoreId: created.keystoreId,
+      label: created.label,
+      provisioned: created.created
+    });
     await state.reload();
     return state.getStatus();
   }
-  await state.setConfig({keystoreId: marker.keystoreId, label: marker.label, provisioned: marker.created});
+  await state.setConfig({
+    ...(existing ?? {}),
+    keystoreId: marker.keystoreId,
+    label: marker.label,
+    provisioned: marker.created
+  });
   await state.reload();
   return state.getStatus();
 }
