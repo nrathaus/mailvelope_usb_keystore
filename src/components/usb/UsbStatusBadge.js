@@ -10,7 +10,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import {USB_STATE} from '../../modules/usb/constants';
-import {strings} from '../../modules/usb/strings';
+import {strings, describeState} from '../../modules/usb/strings';
 import {port} from '../../app/app';
 import {statusVariant, useUsbStatus} from './usbStatus';
 
@@ -28,15 +28,36 @@ export default function UsbStatusBadge({status: statusProp}) {
       </span>
     );
   }
-  const ready = status.state === USB_STATE.READY;
   return (
     <span
       className={`badge badge-${statusVariant(status)}`}
-      title={ready ? strings.status_ready : strings.status_absent}
+      // Derived from the shared state description rather than a local guess, so the
+      // tooltip cannot drift from what the settings page says.
+      title={describeState(status.state)}
     >
-      {ready ? strings.storage_indicator_usb : strings.storage_indicator_usb_disconnected}
+      {indicatorLabel(status.state)}
     </span>
   );
+}
+
+/**
+ * The short label for a state.
+ *
+ * Previously binary -- anything other than READY read as "disconnected", which is
+ * plainly false for a device that is connected but write-protected, and that was the
+ * only signal the keyring page carried.
+ * @param {String} state
+ * @return {String}
+ */
+function indicatorLabel(state) {
+  switch (state) {
+    case USB_STATE.READY:
+      return strings.storage_indicator_usb;
+    case USB_STATE.READ_ONLY:
+      return strings.storage_indicator_usb_read_only;
+    default:
+      return strings.storage_indicator_usb_disconnected;
+  }
 }
 
 UsbStatusBadge.propTypes = {
