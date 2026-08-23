@@ -4,6 +4,7 @@
  */
 
 import {MvError} from '../lib/util';
+import {isConfigured as usbKeystoreConfigured} from './usb/state';
 import {enums, decryptKey} from 'openpgp';
 import * as prefs from './prefs';
 
@@ -200,6 +201,19 @@ export {deleteEntry as delete};
  * @param {Number} [reserverdOperations] - number of decrypt operations initially used
  */
 export async function set({key, password, reservedOperations = 0}) {
+  // Never cache while keys live on a USB device. Caching an entry makes
+  // chrome.alarms hold an alarm named PWD_ALARM_<fingerprint>, and Chrome persists
+  // alarm names to disk with persistAcrossSessions -- so the fingerprint of a key
+  // that is supposed to exist only on the device is written to the local profile,
+  // where LevelDB's append-only log keeps it readable long after the alarm is
+  // cleared. The passphrase itself never reaches disk, but a fingerprint still
+  // records which key this machine used.
+  //
+  // Gated here rather than at the `active` check in unlock(), because
+  // privateKey.controller calls this directly and would bypass that.
+  if (await usbKeystoreConfigured()) {
+    return;
+  }
   // primary key fingerprint is main key of cache
   const primaryKeyFpr = key.getFingerprint();
   let entry;

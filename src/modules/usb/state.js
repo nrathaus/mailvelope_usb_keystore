@@ -156,6 +156,20 @@ export async function hadKeys() {
   return Boolean((await getConfig())?.hadKeys);
 }
 
+/**
+ * Whether a USB keystore is configured, read from storage rather than from the
+ * in-memory flag.
+ *
+ * isEnabled() answers from state set during the first probe, so it reads false until
+ * init() has run. Callers on the crypto path can be reached before that, and there a
+ * false negative would permit exactly the behaviour it is meant to prevent -- so this
+ * pays a storage read to be right regardless of ordering.
+ * @return {Promise<Boolean>}
+ */
+export async function isConfigured() {
+  return Boolean((await getConfig())?.keystoreId);
+}
+
 export async function clearConfig() {
   await chrome.storage.local.remove(USB_CONFIG_KEY);
 }

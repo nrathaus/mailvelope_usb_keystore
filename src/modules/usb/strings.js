@@ -101,6 +101,10 @@ export const strings = {
   // Shown only when a keystore is configured but not reachable, so the wording must
   // not tell the user to set one up: they already have, and the remedy is to make the
   // configured device available -- or, for a wrong device, to connect the right one.
+  // Shown beside the passphrase-cache setting, which USB mode overrides. Explaining
+  // it beats a control that silently does nothing.
+  cache_disabled: 'Turned off because your keys are on a USB device. Caching a passphrase makes the browser record the key\u2019s fingerprint in this computer\u2019s profile, which would leave a trace of the key here.',
+
   generate_blocked_heading: 'Your keys are on a device that is not available',
   generate_blocked_text: 'Connect the device holding your keys before generating or importing, so no key material is written to this computer.'
 };

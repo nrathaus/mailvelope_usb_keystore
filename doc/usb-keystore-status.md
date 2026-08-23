@@ -20,7 +20,7 @@ flatpak's portal sandbox can hide `/run/media`) and Firefox `154`.
 
 | Verified | Detail |
 |---|---|
-| Keys stored only on the device | profile grep for `BEGIN PGP` clean throughout; no `default_key`, not even the fingerprint |
+| Keys stored only on the device | no private key bytes in either profile, checked by grepping both for 40-char slices of the real armored keys; no passphrase on disk |
 | Encrypt and decrypt with a device-resident key | round-trips, both browsers |
 | Provisioning | fresh, and adopt-over-existing via the override |
 | **Cross-browser portability** | one keystore, read by Chrome via FSA and by Firefox via the host, no key material in either profile |
@@ -156,6 +156,17 @@ Four singular ones worth keeping:
   "use this folder anyway" override impossible, and the test asserted
   `toHaveBeenCalledWith({label})` — passing *because* of the bug. A revert check does
   not catch a wrong assertion, only a missing one.
+- **The passphrase cache wrote a key fingerprint to disk.** Caching an entry makes
+  `chrome.alarms` hold an alarm named `PWD_ALARM_<full fingerprint>`, and Chrome
+  persists alarm names to `Extension State/` with `persistAcrossSessions`. Both our
+  purge and upstream's own timeout clear the alarm correctly, but LevelDB is
+  append-only, so the fingerprint stayed readable in the log seven hours after the
+  alarm had fired. Upstream behaviour, and `password_cache` defaults to `true`, so it
+  affected every USB user. Metadata rather than key material -- it records which key
+  this machine used, not the key -- but the requirement is that no crypto information
+  lives outside the device. The cache is now refused while a keystore is configured.
+  Found by grepping the profile *after* believing the work was finished, which is the
+  argument for doing that at the end of every session rather than at the start.
 - **Errors thrown into nothing.** The keyring UI's shape for key operations is
   "swallow a cancelled password dialog, rethrow the rest", and in an async handler a
   rethrow is an unhandled rejection. Eight call sites do this. Harmless while writes
@@ -193,10 +204,14 @@ Weak spots, in the order worth addressing:
   reflect currently-reachable keys. The dangerous outcome is already prevented — a
   provider that responds by prompting key generation gets a fail-closed write and a
   clear device error.
-- **`password_cache` in USB mode.** Recommendation, now that the purge has been
-  observed working: **leave it on**. Cached material does not survive removal, so it
-  cannot outlive the device; what remains is the ordinary cache tradeoff, which USB
-  storage does not change.
+- ~~**`password_cache` in USB mode.**~~ **Decided: off while a keystore is
+  configured.** An earlier recommendation to leave it on was made before checking what
+  caching writes to disk -- it names an alarm after the key fingerprint, which Chrome
+  persists. `pwdCache.set()` now returns early when a keystore is configured, gated
+  there rather than at the `active` check in `unlock()` because
+  `privateKey.controller` calls `set()` directly and would bypass that. The stored
+  preference is deliberately left as the user set it, so disabling the USB keystore
+  restores their own choice; the Security page disables the control and says why.
 - **Probe interval** — 30 s is Chrome's alarm floor; 1 s polling while a page is
   visible. Cost: a visible page keeps the device from idling.
 
@@ -217,6 +232,12 @@ Weak spots, in the order worth addressing:
   and because an extraction pattern assumed a JSON key order Chrome does not preserve.
 - **A passing test can be enforcing the bug.** Read the assertion, not just the
   result.
+- **Grep the browser profile before calling it done, not just after a change.** The
+  fingerprint leak was found by a final sweep, hours after the feature was believed
+  finished. It also produces false alarms worth knowing about: `BEGIN PGP PRIVATE`
+  matches in `Service Worker/ScriptCache` are openpgp.js armor constants inside our own
+  bundled script, not stored keys. Distinguish them by grepping for slices of the
+  actual key material, which is the only check that answers the question.
 
 ## 8. Environment
 

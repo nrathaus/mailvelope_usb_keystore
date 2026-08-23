@@ -8,6 +8,7 @@ import PropTypes from 'prop-types';
 import {port} from '../app';
 import {str2bool} from '../../lib/util';
 import * as l10n from '../../lib/l10n';
+import {strings as usbStrings} from '../../modules/usb/strings';
 
 l10n.register([
   'form_cancel',
@@ -35,6 +36,8 @@ export default class Security extends React.Component {
       password_timeout: 30,
       hide_armored_header: false,
       modified: false,
+      // Keys on a USB device override this setting; see usbCacheDisabled in render.
+      usbConfigured: false,
       errors: {}
     };
     this.handleChange = this.handleChange.bind(this);
@@ -54,6 +57,16 @@ export default class Security extends React.Component {
       password_timeout: security.password_timeout,
       hide_armored_header: security.hide_armored_header
     });
+    // Reported separately from the preference, which is deliberately left as the user
+    // set it: disabling the USB keystore should restore their own choice rather than
+    // silently having overwritten it.
+    try {
+      const {enabled} = await port.send('usb-get-status');
+      this.setState({usbConfigured: Boolean(enabled)});
+    } catch (e) {
+      // The setting is merely ineffective if this fails, so it must not break the page.
+      console.log('could not read USB keystore status', e);
+    }
   }
 
   handleChange(event) {
@@ -105,17 +118,20 @@ export default class Security extends React.Component {
         <form className="form">
           <div className="form-group mb-4">
             <h3>{l10n.map.security_cache_header}</h3>
+            {this.state.usbConfigured && (
+              <p className="text-muted small">{usbStrings.cache_disabled}</p>
+            )}
             <div className="form-inline">
               <div className="custom-control custom-radio custom-control-inline mr-2">
-                <input type="radio" name="password_cache" id="pwdCacheRadios1" value="true" checked={this.state.password_cache} onChange={this.handleChange} className="custom-control-input" />
+                <input type="radio" name="password_cache" id="pwdCacheRadios1" value="true" checked={this.state.password_cache && !this.state.usbConfigured} onChange={this.handleChange} disabled={this.state.usbConfigured} className="custom-control-input" />
                 <label className="custom-control-label" htmlFor="pwdCacheRadios1">{l10n.map.security_cache_on}</label>
               </div>
-              <input type="text" maxLength="3" id="pwdCacheTime" name="password_timeout" value={this.state.password_timeout} style={{width: '50px'}} onChange={this.handleChange} className={`form-control mr-2 text-right ${this.state.errors.password_timeout ? 'is-invalid' : ''}`} />
+              <input type="text" maxLength="3" id="pwdCacheTime" name="password_timeout" value={this.state.password_timeout} style={{width: '50px'}} onChange={this.handleChange} disabled={this.state.usbConfigured} className={`form-control mr-2 text-right ${this.state.errors.password_timeout ? 'is-invalid' : ''}`} />
               <label className="my-1 mr-2" htmlFor="pwdCacheTime">{l10n.map.security_cache_time}</label>
               {this.state.errors.password_timeout && <div className="invalid-feedback mb-2">{l10n.map.security_cache_help}</div>}
             </div>
             <div className="custom-control custom-radio custom-control-inline mr-2">
-              <input type="radio" name="password_cache" id="pwdCacheRadios2" value="false" checked={!this.state.password_cache} onChange={this.handleChange} className="custom-control-input" />
+              <input type="radio" name="password_cache" id="pwdCacheRadios2" value="false" checked={!this.state.password_cache || this.state.usbConfigured} onChange={this.handleChange} disabled={this.state.usbConfigured} className="custom-control-input" />
               <label className="custom-control-label" htmlFor="pwdCacheRadios2">{l10n.map.security_cache_off}</label>
             </div>
           </div>
