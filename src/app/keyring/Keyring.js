@@ -95,7 +95,12 @@ class Keyring extends React.Component {
       this.usbState = next;
       // Kept in state so render can tell "no key pair" from "cannot read the keys".
       this.setState({usbStatus: status});
-      if (changed) {
+      // Reload on a change, and also whenever a reachable device coincides with an
+      // empty list: that combination means this page read the keyring before the
+      // background finished loading it from the device, and without a second look
+      // it would keep offering to generate a key that already exists.
+      const staleEmpty = status?.enabled && next === 'READY' && !this.state.keys.length;
+      if (changed || staleEmpty) {
         this.loadKeyring();
       }
     });

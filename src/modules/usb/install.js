@@ -250,6 +250,10 @@ async function reloadKeyringsFromDevice() {
       keyring.keystore.clear();
       await keyring.keystore.load();
     }
+    // Tell the views the keys are actually available now. The READY broadcast went
+    // out before this finished, so anything that refreshed on it saw an empty
+    // keyring and reported no keys.
+    state.republish();
   } catch (e) {
     console.log('USB keystore: reloading keyrings failed', e);
   }

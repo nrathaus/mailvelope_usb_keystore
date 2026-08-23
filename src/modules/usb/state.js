@@ -190,6 +190,26 @@ async function computeState() {
 }
 
 /**
+ * Re-publish the current status without a state change.
+ *
+ * transition() notifies listeners synchronously, so anything it triggers that is
+ * asynchronous -- reloading the keyrings from the device, for one -- has not
+ * finished by the time a view reacts. The view then reads a keyring that is still
+ * empty and concludes there are no keys. This lets the slow work announce its own
+ * completion.
+ */
+export function republish() {
+  const status = getStatus();
+  for (const listener of listeners) {
+    try {
+      listener(state, state, status);
+    } catch (e) {
+      console.log('USB keystore state listener failed', e);
+    }
+  }
+}
+
+/**
  * Probe the device and publish any state change.
  * @return {Promise<String>} the current state
  */
