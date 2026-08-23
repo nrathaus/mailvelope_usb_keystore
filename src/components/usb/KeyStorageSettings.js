@@ -15,6 +15,7 @@ import {port} from '../../app/app';
 import {USB_STATE} from '../../modules/usb/constants';
 import {strings, describeState} from '../../modules/usb/strings';
 import {pickDirectory, isPickerAvailable, regrantPermission} from '../../modules/usb/provision';
+import UsbDevicePicker from './UsbDevicePicker';
 import {STORAGE, storageOf, statusVariant, subscribeStatus, updateStatus} from './usbStatus';
 
 /** Provisioning refusals the user is allowed to overrule. */
@@ -40,6 +41,7 @@ export default class KeyStorageSettings extends React.Component {
     this.handleProbe = this.handleProbe.bind(this);
     this.handleReconnect = this.handleReconnect.bind(this);
     this.handleAdopt = this.handleAdopt.bind(this);
+    this.handleSelectDevice = this.handleSelectDevice.bind(this);
   }
 
   componentDidMount() {
@@ -140,6 +142,26 @@ export default class KeyStorageSettings extends React.Component {
   }
 
   /**
+   * Adopt a device chosen from the helper's list, then provision it. Two steps
+   * because the path has to be recorded before the device can be inspected: the
+   * native backend has no stored handle to recover its location from.
+   * @param {String} devicePath
+   */
+  handleSelectDevice(devicePath) {
+    return this.run(async () => {
+      await port.send('usb-select-device', {devicePath});
+      try {
+        return await port.send('usb-provision', {label: devicePath.split('/').pop()});
+      } catch (e) {
+        if (OVERRIDABLE.includes(e.code)) {
+          this.setState({adoptable: devicePath.split('/').pop()});
+        }
+        throw e;
+      }
+    });
+  }
+
+  /**
    * Restore access to the directory already configured, falling back to a full
    * pick only if there is nothing stored or the user declines.
    */
@@ -169,10 +191,22 @@ export default class KeyStorageSettings extends React.Component {
     return this.run(() => port.send('usb-disable'));
   }
 
+  /**
+   * Whether this browser can configure a device at all.
+   *
+   * Two routes: a directory picker (Chromium), or the native helper enumerating
+   * devices (Firefox). Gating on the picker alone wrongly refused the whole feature
+   * on Firefox once the helper existed.
+   * @return {Boolean}
+   */
+  canConfigure() {
+    return isPickerAvailable() || Boolean(this.state.status?.native);
+  }
+
   renderStorageChoice() {
     const {status, busy, pendingUsb} = this.state;
     const selected = pendingUsb ? STORAGE.USB : storageOf(status);
-    const pickerAvailable = isPickerAvailable();
+    const configurable = this.canConfigure();
     return (
       <fieldset className="form-group">
         <legend className="h6">{strings.storage_heading}</legend>
@@ -191,14 +225,14 @@ export default class KeyStorageSettings extends React.Component {
           <input
             type="radio" id="storage-usb" name="storage" value={STORAGE.USB}
             className="custom-control-input" checked={selected === STORAGE.USB}
-            onChange={this.handleSelectStorage} disabled={busy || !pickerAvailable}
+            onChange={this.handleSelectStorage} disabled={busy || !configurable}
           />
           <label className="custom-control-label" htmlFor="storage-usb">
             <strong>{strings.storage_usb_label}</strong>
             <span className="d-block text-muted">{strings.storage_usb_description}</span>
           </label>
         </div>
-        {!pickerAvailable && (
+        {!configurable && (
           <div className="alert alert-secondary mt-3 mb-0">{strings.status_unsupported}</div>
         )}
       </fieldset>
@@ -258,11 +292,14 @@ export default class KeyStorageSettings extends React.Component {
             {/* Offered whenever the device is not usable, not only before setup:
                 a removable device turns up at a different mount point all the time,
                 and requiring "Stop using the USB keystore" first makes re-pointing
-                look like a destructive act. */}
-            {(!configured || status.state !== USB_STATE.READY) && (
+                look like a destructive act.
+
+                Only on the picker path -- the native path lists devices instead,
+                below, since Firefox has no directory picker. */}
+            {isPickerAvailable() && (!configured || status.state !== USB_STATE.READY) && (
               <button type="button"
                 className={`btn mr-2 mb-2 ${configured ? 'btn-secondary' : 'btn-primary'}`}
-                onClick={() => this.handleChooseDirectory()} disabled={busy || !isPickerAvailable()}>
+                onClick={() => this.handleChooseDirectory()} disabled={busy}>
                 {configured ? strings.choose_other_directory : strings.choose_directory}
               </button>
             )}
@@ -360,6 +397,9 @@ export default class KeyStorageSettings extends React.Component {
         {notice && <div className="alert alert-success">{notice}</div>}
         {this.renderStorageChoice()}
         {showDevice && this.renderDevicePanel()}
+        {showDevice && status?.native && status.state !== USB_STATE.READY && (
+          <UsbDevicePicker onSelect={this.handleSelectDevice} />
+        )}
         {this.renderMigration()}
         {showDevice && (
           <div className="card">

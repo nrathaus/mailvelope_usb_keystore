@@ -54,6 +54,22 @@ export const strings = {
   action_menu_unavailable: 'USB keystore not connected',
 
   choose_directory: 'Choose directory…',
+
+  // Native-host path: Firefox has no directory picker, so a device is chosen from
+  // the list the helper reports.
+  devices_heading: 'Connected devices',
+  devices_refresh: 'Refresh list',
+  devices_none: 'No removable devices found. Connect one and refresh.',
+  devices_use: 'Use this device',
+  devices_read_only: 'read-only',
+  devices_hint: 'Mailvelope creates a “mailvelope-keystore” folder on the device you choose.',
+  helper_needed_heading: 'Helper required',
+  helper_needed: 'This browser reaches a USB device through a small helper program that has to be installed separately. See native-host/install.sh in the Mailvelope source.',
+  helper_permission_heading: 'Permission required',
+  helper_permission: 'Mailvelope needs permission to talk to the helper program.',
+  helper_permission_grant: 'Grant permission',
+  helper_ready: 'Helper installed and reachable.',
+
   choose_other_directory: 'Select a different folder…',
   choose_other_directory_hint: 'Use this if the device is mounted somewhere new, or to point this profile at a different device.',
   choose_directory_hint: 'Select the drive or folder that will contain the keystore — typically the root of the device. Mailvelope creates a “mailvelope-keystore” folder inside it, so do not select that folder itself.',
