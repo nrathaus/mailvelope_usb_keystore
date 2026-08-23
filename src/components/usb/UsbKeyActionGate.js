@@ -31,8 +31,8 @@ export default function UsbKeyActionGate({status: statusProp, children}) {
   return (
     <div className="col-12 mb-3">
       <div className="alert alert-warning mb-0">
-        <strong>{strings.generate_first_heading}</strong>
-        <p className="mb-2">{strings.generate_first_text}</p>
+        <strong>{strings.generate_blocked_heading}</strong>
+        <p className="mb-2">{strings.generate_blocked_text}</p>
         <p className="mb-2">{describeState(status.state)}</p>
         <Link to="/settings/key-storage" className="btn btn-sm btn-primary">
           {strings.banner_reconnect}

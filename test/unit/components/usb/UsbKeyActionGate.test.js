@@ -35,7 +35,7 @@ describe('UsbKeyActionGate', () => {
   it('allows key creation when no keystore is configured', () => {
     renderGate({enabled: false, state: USB_STATE.NOT_CONFIGURED});
     expect(screen.getByText(CHILDREN)).toBeInTheDocument();
-    expect(screen.queryByText(strings.generate_first_heading)).not.toBeInTheDocument();
+    expect(screen.queryByText(strings.generate_blocked_heading)).not.toBeInTheDocument();
   });
 
   it('allows key creation while the device is connected', () => {
@@ -51,8 +51,19 @@ describe('UsbKeyActionGate', () => {
   it('blocks and explains when the configured device is absent', () => {
     renderGate({enabled: true, state: USB_STATE.ABSENT});
     expect(screen.queryByText(CHILDREN)).not.toBeInTheDocument();
-    expect(screen.getByText(strings.generate_first_heading)).toBeInTheDocument();
+    expect(screen.getByText(strings.generate_blocked_heading)).toBeInTheDocument();
     expect(screen.getByText(strings.status_absent)).toBeInTheDocument();
+  });
+
+  // The gate renders only when a keystore is configured, so its wording must never
+  // tell the user to set one up. This case is where that was found: a device whose
+  // marker names a different keystore is present and readable, and being told to
+  // "set up the device" or to "connect" it names neither of the two real remedies.
+  it('names the state rather than telling the user to set up a keystore they have', () => {
+    renderGate({enabled: true, state: USB_STATE.WRONG_DEVICE});
+    expect(screen.queryByText(CHILDREN)).not.toBeInTheDocument();
+    expect(screen.getByText(strings.status_wrong_device)).toBeInTheDocument();
+    expect(screen.queryByText(/set up/i)).not.toBeInTheDocument();
   });
 
   it('blocks when the permission grant is missing', () => {

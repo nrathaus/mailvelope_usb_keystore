@@ -15,7 +15,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import {Link} from 'react-router-dom';
 import {port} from '../../app/app';
-import {strings} from '../../modules/usb/strings';
+import {strings, describeState} from '../../modules/usb/strings';
 import {isUnavailable, useUsbStatus} from './usbStatus';
 
 export default function UsbSetupCard({status: statusProp}) {
@@ -36,7 +36,10 @@ export default function UsbSetupCard({status: statusProp}) {
           <h5 className="card-title">{strings.setup_card_title}</h5>
           <p className="card-text flex-grow-1">{strings.setup_card_text}</p>
           {isUnavailable(status) && (
-            <p className="text-warning small">{strings.status_absent}</p>
+            // Per-state, not a single "not available": telling someone to connect a
+            // device they have already connected -- the wrong-device and
+            // write-protected cases -- points away from the only real remedy.
+            <p className="text-warning small">{describeState(status.state)}</p>
           )}
           <Link to="/settings/key-storage" className="btn btn-secondary btn-lg w-100 mt-auto">
             {strings.setup_card_button}

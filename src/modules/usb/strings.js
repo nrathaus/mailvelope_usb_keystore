@@ -98,8 +98,11 @@ export const strings = {
   encrypted_volume_hint: 'For protection at rest, put an encrypted volume on the device (VeraCrypt, or LUKS on Linux) and select it once unlocked. Mailvelope reports a locked volume as disconnected.',
   formatting_hint: 'exFAT is the best choice if the device moves between computers. ext4 adds journaling and file permissions but is practically Linux-only.',
 
-  generate_first_heading: 'Set up the device first',
-  generate_first_text: 'Set up the USB keystore before generating or importing a key, so no key material is ever written to this computer.'
+  // Shown only when a keystore is configured but not reachable, so the wording must
+  // not tell the user to set one up: they already have, and the remedy is to make the
+  // configured device available -- or, for a wrong device, to connect the right one.
+  generate_blocked_heading: 'Your keys are on a device that is not available',
+  generate_blocked_text: 'Connect the device holding your keys before generating or importing, so no key material is written to this computer.'
 };
 
 /**
