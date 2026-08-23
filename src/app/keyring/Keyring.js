@@ -138,10 +138,20 @@ class Keyring extends React.Component {
     ]);
     const sortedKeys = keys.sort((a, b) => a.name.localeCompare(b.name));
     const hasPrivateKey = sortedKeys.some(key => key.type === 'private');
+    const wasEmpty = !this.state.keys.length;
     /* eslint-enable react/no-access-state-in-setstate */
     this.setState({
       keyringId, defaultKeyFpr, demail, gnupg, keyringAttr, hasPrivateKey, hasUsablePrivateKey, keys: sortedKeys, setupSkipped: Boolean(setupSkipped), keysLoading: false
     });
+    // The redirect to the setup screen only happens on the exact /keyring path, so
+    // once there the URL is sticky: keys arriving later leave the user looking at
+    // "set up a key" with a perfectly good key loaded behind it. That is precisely
+    // what happens when a USB device is reconnected. Leave the screen when keys
+    // turn up, and only then -- a 0 to N transition cannot be confused with someone
+    // deliberately opening setup while they already have keys.
+    if (wasEmpty && sortedKeys.length && this.props.location?.pathname === '/keyring/setup') {
+      this.props.history.push('/keyring/display');
+    }
   }
 
   async handleSkipSetup() {
