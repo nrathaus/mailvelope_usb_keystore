@@ -567,17 +567,45 @@ fits the existing harness.
    places: the settings panel, an app-wide banner, a badge on the keyring page, and
    the toolbar badge plus action-menu row when no Mailvelope page is open.
 
-### Still open
+### Resolved during implementation
 
-6. **Probe interval.** 1 minute is the practical Chrome MV3 alarm floor. Because every keystore
-   operation also probes, the timer only affects how fast a *passive* UI notices removal.
-7. **Firefox timing.** Ship Phases 1–4 as Chrome-only with an explicit `UNSUPPORTED` state in
-   Firefox, or hold the feature until the native host exists? **Recommendation: ship Chrome
-   first** — the native host is a separate deliverable with its own install story.
-8. **Password cache in USB mode.** `pwdCache` holds decrypted private keys and passphrases in
-   `chrome.storage.session`. That store is documented as memory-only, but given the priority
-   ordering it is worth deciding whether USB mode should force `security.password_cache` off
-   rather than merely purging the cache when the device is removed.
+6. **Probe interval.** 30 seconds (`periodInMinutes: 0.5`) is the alarm floor, with 1-second
+   polling while a page is visible and a probe before every keystore operation. So the timer only
+   governs how fast a *passive* UI notices removal.
+7. **Firefox timing.** Both ship. The native host landed in the same branch, and one keystore has
+   been read by Chrome through the File System Access API and by Firefox through the host, with no
+   key material in either profile.
+8. **Password cache in USB mode.** **Forced off** while a keystore is configured. The reason turned
+   out not to be the one anticipated here: `chrome.storage.session` is indeed memory-only, so no
+   passphrase reaches disk. But caching an entry makes `chrome.alarms` hold an alarm named
+   `PWD_ALARM_<fingerprint>`, and Chrome persists alarm names to `Extension State/` with
+   `persistAcrossSessions` — writing the fingerprint of a device-resident key into the local
+   profile, where LevelDB's append-only log kept it readable seven hours after the alarm had
+   fired. Gated in `pwdCache.set()` rather than at the `active` check in `unlock()`, because
+   `privateKey.controller` calls `set()` directly.
+
+### Known limitation, accepted
+
+9. **`hasPrivateKey` reports `false` while the device is detached.** The client API's
+   `hasPrivateKey` (`api.controller.js`) reads the in-memory keystore, which is empty when the
+   device is gone, so a webmail provider asking whether the user has a private key cannot tell
+   "detached" from "never had one".
+
+   **Decision: leave it.** `false` is true in the sense the caller acts on — there is no usable
+   private key, and encryption cannot proceed. The contract is a boolean, and raising a
+   device-unavailable code would land in third-party error handlers written long before this
+   feature, which is likely to behave worse than a truthful `false`. The harmful reaction is
+   already prevented: a provider that responds by prompting key generation gets a fail-closed
+   write with a clear device error, and the UI gate blocks generate and import before the form
+   appears.
+
+   What it costs: a provider may conclude the user does not use encryption and stop offering it
+   until the device is reconnected. Recoverable and self-correcting, which is why it is not worth
+   changing a published API shape over.
+
+   Deliberately **not** documented in `client-api.js`'s JSDoc: that is upstream's published API
+   documentation, and a caveat that applies only to builds with this feature would be diff carried
+   through every rebase.
 
 ## 10. Security notes
 

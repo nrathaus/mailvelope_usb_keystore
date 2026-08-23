@@ -197,13 +197,14 @@ Weak spots, in the order worth addressing:
 - `UsbErrorToast.js` **5%**, `UsbStatusBanner.js` **17%** — the global rejection
   listener is worth a test; it is the only thing reporting several failures.
 
-## 6. Open decisions
+## 6. Decisions
 
-- **client-API `hasPrivateKey`** reports `false` to a webmail page while the device is
-  detached. Recommendation: **leave it**, and note in the JSDoc that these queries
-  reflect currently-reachable keys. The dangerous outcome is already prevented — a
-  provider that responds by prompting key generation gets a fail-closed write and a
-  clear device error.
+- ~~**client-API `hasPrivateKey`**~~ **Decided: leave it**, documented in
+  [usb-keystore-plan.md](usb-keystore-plan.md) §9 rather than in `client-api.js`'s
+  JSDoc, which is upstream's published API documentation. It reports `false` while the
+  device is detached, so a provider cannot tell "detached" from "never had a key" —
+  but `false` is what the caller acts on, and the harmful reaction is already
+  fail-closed.
 - ~~**`password_cache` in USB mode.**~~ **Decided: off while a keystore is
   configured.** An earlier recommendation to leave it on was made before checking what
   caching writes to disk -- it names an alarm after the key fingerprint, which Chrome
