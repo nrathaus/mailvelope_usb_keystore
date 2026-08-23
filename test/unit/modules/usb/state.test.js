@@ -35,6 +35,19 @@ jest.mock('../../../../src/modules/usb/FsaBackend', () => {
   return {__esModule: true, default: FakeBackend};
 });
 
+// Two backends exist now, so a test that means "no backend at all" has to say so
+// for both. Native support is off by default here; the Firefox path has its own
+// tests.
+jest.mock('../../../../src/modules/usb/NativeBackend', () => {
+  class FakeNative {
+    static isSupported() {
+      return FakeNative.supported === true;
+    }
+  }
+  FakeNative.supported = false;
+  return {__esModule: true, default: FakeNative};
+});
+
 const KEYSTORE_ID = 'abc123';
 const MARKER_PATH = 'mailvelope-keystore/keystore.json';
 

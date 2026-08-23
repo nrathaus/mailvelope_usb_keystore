@@ -34,6 +34,51 @@ export const PROTOCOL_VERSION = 1;
 /** Host error codes that mean "the device is not there", rather than a fault. */
 const ABSENT_CODES = ['not_found', 'io_error', 'root_not_mounted'];
 
+/**
+ * One native message, tolerating either calling convention.
+ *
+ * Firefox exposes chrome.* as an alias for browser.*, but the two namespaces have
+ * historically differed on whether a method returns a promise or takes a callback.
+ * Assuming promises would make a callback-only implementation resolve to undefined,
+ * which this class would then report as "the helper returned no response" -- a
+ * missing-helper message for a working helper.
+ *
+ * Prefer the promise if one comes back, fall back to the callback otherwise, so the
+ * difference cannot matter.
+ * @param {Object} request
+ * @return {Promise<Object>}
+ */
+function sendNative(request) {
+  const api = (typeof browser !== 'undefined' && browser.runtime?.sendNativeMessage)
+    ? browser.runtime.sendNativeMessage.bind(browser.runtime)
+    : chrome.runtime.sendNativeMessage.bind(chrome.runtime);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const done = value => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+      } else {
+        resolve(value);
+      }
+    };
+    let maybePromise;
+    try {
+      maybePromise = api(HOST_NAME, request, done);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    if (maybePromise && typeof maybePromise.then === 'function') {
+      maybePromise.then(resolve, reject);
+    }
+  });
+}
+
 export default class NativeBackend extends UsbBackend {
   constructor() {
     super();
@@ -42,14 +87,26 @@ export default class NativeBackend extends UsbBackend {
   }
 
   /**
-   * Whether native messaging is reachable at all.
+   * Whether this browser could reach a native host, given permission.
    *
-   * Only checks that the API exists; whether the host is actually installed can
-   * only be discovered by talking to it, which probe() does.
+   * Deliberately not a test for chrome.runtime.sendNativeMessage. Firefox hides
+   * permission-gated APIs until the permission is granted, and nativeMessaging is
+   * optional -- so testing for the function makes support read as false until
+   * granted, while the UI that asks for the grant is itself gated on support. That
+   * is unreachable by construction.
+   *
+   * So the question here is capability, not current state: can this browser talk to
+   * a native host at all? Whether the permission is held, and whether a host is
+   * actually installed, are separate questions answered by the picker UI and by
+   * probe() respectively -- and they need different remedies, so they must not be
+   * collapsed into this one.
    * @return {Boolean}
    */
   static isSupported() {
-    return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.sendNativeMessage);
+    if (typeof chrome === 'undefined' || !chrome.runtime) {
+      return false;
+    }
+    return Boolean(chrome.runtime.sendNativeMessage) || Boolean(chrome.permissions?.request);
   }
 
   /** The device path this backend operates on. Set from the stored configuration. */
@@ -72,9 +129,19 @@ export default class NativeBackend extends UsbBackend {
    * @return {Promise<Object>} the host's result
    */
   async send(request) {
+    if (!chrome.runtime.sendNativeMessage) {
+      // Firefox exposes this only once nativeMessaging is granted, so its absence
+      // means the permission, not a missing helper. Distinct code: the remedies
+      // differ, and telling someone to install software they already have is worse
+      // than saying nothing.
+      throw new MvError(
+        'Permission to use the Mailvelope USB keystore helper has not been granted',
+        'USB_HOST_PERMISSION'
+      );
+    }
     let response;
     try {
-      response = await chrome.runtime.sendNativeMessage(HOST_NAME, request);
+      response = await sendNative(request);
     } catch (e) {
       // No host installed, or it failed to start. Not the same as no device.
       throw new MvError(
