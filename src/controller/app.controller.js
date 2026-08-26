@@ -144,8 +144,7 @@ export default class AppController extends SubController {
 
   async reloadKeystore({keyringId}) {
     const keyring = await keyringById(keyringId);
-    keyring.keystore.clear();
-    await keyring.keystore.load();
+    await keyring.keystore.reload();
   }
 
   async getKeyServerSync({fingerprint, keyringId}) {

@@ -14,6 +14,30 @@ export class KeyStoreBase {
     this.privateKeys = new KeyArray([]);
   }
 
+  /**
+   * Reload every key from the backing store, publishing the result in one step.
+   *
+   * clear() followed by load() leaves the keyring visibly empty, then visibly
+   * half-full, for as long as the load takes: microseconds for a keyring of two keys,
+   * seconds for one of four hundred read off a removable device. Anything that reads
+   * in that window gets a partial keyring -- a key list missing most of its rows, or
+   * a decryption that cannot find a key which is in fact present -- and nothing tells
+   * it to look again, because a short list is not obviously a wrong one.
+   *
+   * Loading into a detached store and swapping the result in makes a concurrent
+   * reader see either the old generation whole or the new one whole.
+   */
+  async reload() {
+    const fresh = new this.constructor(this.id);
+    await fresh.load();
+    for (const [property, value] of Object.entries(fresh)) {
+      // Whatever load() populated: the two key arrays, plus defaultKeyFpr for GnuPG.
+      if (property !== 'id') {
+        this[property] = value;
+      }
+    }
+  }
+
   getKeysForId(keyId, deep) {
     let result = [];
     result = result.concat(this.publicKeys.getForId(keyId, deep) || []);

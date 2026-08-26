@@ -274,8 +274,10 @@ async function reloadKeyringsFromDevice() {
       return;
     }
     for (const keyring of keyrings) {
-      keyring.keystore.clear();
-      await keyring.keystore.load();
+      // reload(), not clear() then load(): this runs while pages are reading the
+      // keyring, and a keyring of any size takes long enough to refill that a reader
+      // would otherwise see a fraction of it.
+      await keyring.keystore.reload();
     }
     // Tell the views the keys are actually available now. The READY broadcast went
     // out before this finished, so anything that refreshed on it saw an empty

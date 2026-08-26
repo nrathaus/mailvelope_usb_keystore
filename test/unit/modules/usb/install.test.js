@@ -260,7 +260,7 @@ describe('usb/install storage interception', () => {
     it('clears the passphrase cache and in-memory keyrings', async () => {
       const {getAll} = require('../../../../src/modules/keyring');
       const {clear} = require('../../../../src/modules/pwdCache');
-      const keystore = {clear: jest.fn()};
+      const keystore = {clear: jest.fn(), reload: jest.fn().mockResolvedValue(undefined)};
       getAll.mockResolvedValue([{keystore}]);
       await bootReady();
       delete device['mailvelope-keystore/keystore.json'];
@@ -303,7 +303,7 @@ describe('usb/install storage interception', () => {
     // the UI still shows no keys, which reads as data loss.
     it('reloads the keyrings from the device on return to READY', async () => {
       const {getAll} = require('../../../../src/modules/keyring');
-      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      const keystore = {clear: jest.fn(), reload: jest.fn().mockResolvedValue(undefined)};
       getAll.mockResolvedValue([{keystore}]);
       await bootReady();
       const marker = device['mailvelope-keystore/keystore.json'];
@@ -316,19 +316,20 @@ describe('usb/install storage interception', () => {
       await state.probe();
       expect(state.getState()).toBe(constants.USB_STATE.READY);
       await new Promise(resolve => setTimeout(resolve, 0));
-      expect(keystore.clear).toHaveBeenCalled();
-      expect(keystore.load).toHaveBeenCalled();
+      // reload(), rather than clear() then load(): a reader during the refill would
+      // otherwise see a fraction of the keyring. KeyStoreBase.reload has its own test.
+      expect(keystore.reload).toHaveBeenCalled();
     });
 
     it('does not reload while the device stays away', async () => {
       const {getAll} = require('../../../../src/modules/keyring');
-      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      const keystore = {clear: jest.fn(), reload: jest.fn().mockResolvedValue(undefined)};
       getAll.mockResolvedValue([{keystore}]);
       await bootAbsent();
-      keystore.load.mockClear();
+      keystore.reload.mockClear();
       await state.probe();
       await new Promise(resolve => setTimeout(resolve, 0));
-      expect(keystore.load).not.toHaveBeenCalled();
+      expect(keystore.reload).not.toHaveBeenCalled();
     });
   });
 
@@ -391,13 +392,13 @@ describe('usb/install storage interception', () => {
     // like a successful one.
     it('reloads the keyrings after a failed write', async () => {
       const {getAll} = require('../../../../src/modules/keyring');
-      const keystore = {clear: jest.fn(), load: jest.fn().mockResolvedValue(undefined)};
+      const keystore = {clear: jest.fn(), reload: jest.fn().mockResolvedValue(undefined)};
       getAll.mockResolvedValue([{keystore}]);
       await bootReady();
       mocks.writeFile.mockRejectedValue(new Error('device gone'));
       await mvelo.storage.set(PRIV_KEY, [PRIVATE_ARMORED]).catch(() => {});
       await new Promise(resolve => setTimeout(resolve, 0));
-      expect(keystore.load).toHaveBeenCalled();
+      expect(keystore.reload).toHaveBeenCalled();
     });
   });
 

@@ -9,7 +9,7 @@ native messaging host. The same physical keystore has been read by both, and nei
 browser profile holds key material.
 
 Branch `feature/usb-keystore`, **42 commits** ahead of `master` (`ffaa27af`). Unit
-suite: **678 tests, 42 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
+suite: **682 tests, 43 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
 bundles build.
 
 ## 1. What has been verified on real hardware
@@ -35,6 +35,7 @@ flatpak's portal sandbox can hide `/run/media`) and Firefox `154`.
 | Permission across a browser restart | **survives**, if the user takes Chrome's persistent option in the prompt |
 | Detection latency | ~1 s while a page is visible, 30 s alarm otherwise |
 | Migration of local keys onto a device that already has a keystore | merges both key sets; see §4 |
+| **A large keyring** | a 426-key `gpg --export --armor` dump imports and persists whole: 411 public keys, 15 that the profile holds privately, plus the one key already there — and the chunked read returns the 1.3 MB file byte-for-byte |
 
 ### Still not verified
 
@@ -154,6 +155,18 @@ heading said "Set up the device first" in every case it could render, though
 reaches it. Both now derive their text from `describeState()`.
 
 Singular ones worth keeping:
+
+- **A reloaded keyring was visible while it was still filling up.** Reloading a
+  keyring means `keystore.clear()` then `keystore.load()`, at both call sites. With
+  two keys the gap between them is invisible; with 400 read off a device it lasts
+  seconds, and anything reading in that window gets a *fraction* of the keyring. A
+  key list missing most of its rows is the visible symptom, and it sticks: the page
+  re-reads when the list is empty, because an empty list is obviously wrong, but a
+  short one is not. Worse than the display bug is what it means for crypto — a
+  decryption during that window cannot find a key that is present. `KeyStoreBase`
+  now has a `reload()` that loads into a detached store and swaps the result in, so a
+  reader sees one whole generation or the other. Only a keyring big enough to make
+  the window observable brings it out; every test keyring here had two keys.
 
 - **A keyring larger than one native message could be neither saved nor read.**
   Importing a public keyring exported with `gpg --export --armor` failed with
