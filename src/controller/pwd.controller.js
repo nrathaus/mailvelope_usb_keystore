@@ -11,6 +11,7 @@ import {SubController} from './sub.controller';
 import * as uiLog from '../modules/uiLog';
 import {getUserInfo} from '../modules/key';
 import * as pwdCache from '../modules/pwdCache';
+import {isConfigured as usbKeystoreConfigured} from '../modules/usb/state';
 
 export default class PwdController extends SubController {
   constructor() {
@@ -33,10 +34,15 @@ export default class PwdController extends SubController {
   async onPwdDialogInit() {
     // pass over keyId and userId to dialog
     const {userId} = await getUserInfo(this.options.key, {allowInvalid: true});
+    // pwdCache.set() refuses to cache while keys live on a USB device, so the stored
+    // preference is not what will happen. Send the effective answer and say why it is
+    // fixed: a checked box that caches nothing is worse than no box at all.
+    const cacheDisabled = await usbKeystoreConfigured();
     this.ports.pwdDialog.emit('set-init-data', {
       userId,
       keyId: this.options.key.getKeyID().toHex().toUpperCase(),
-      cache: prefs.prefs.security.password_cache,
+      cache: cacheDisabled ? false : prefs.prefs.security.password_cache,
+      cacheDisabled,
       reason: this.options.reason
     });
   }
@@ -44,7 +50,11 @@ export default class PwdController extends SubController {
   async onOk(msg) {
     try {
       this.options.password = msg.password;
-      if (msg.cache != prefs.prefs.security.password_cache) {
+      // The dialog reports the box off whenever a USB keystore is configured, so
+      // taking that as the user's choice would silently overwrite their preference
+      // with a value they were never offered. Leave it as they set it, so disabling
+      // the keystore restores it.
+      if (msg.cache != prefs.prefs.security.password_cache && !await usbKeystoreConfigured()) {
         // update pwd cache status
         await prefs.update({security: {password_cache: msg.cache}});
       }

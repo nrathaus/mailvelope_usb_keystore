@@ -105,6 +105,11 @@ export const strings = {
   // it beats a control that silently does nothing.
   cache_disabled: 'Turned off because your keys are on a USB device. Caching a passphrase makes the browser record the key\u2019s fingerprint in this computer\u2019s profile, which would leave a trace of the key here.',
 
+  // Shown next to the greyed-out "remember password" box in the passphrase dialog.
+  // Shorter than cache_disabled, which sits on the settings page where there is room
+  // to explain; here the user is mid-task and wants the reason in one line.
+  cache_unavailable: 'Not available while your keys are on a USB device: caching would record the key\u2019s fingerprint on this computer.',
+
   generate_blocked_heading: 'Your keys are on a device that is not available',
   generate_blocked_text: 'Connect the device holding your keys before generating or importing, so no key material is written to this computer.'
 };

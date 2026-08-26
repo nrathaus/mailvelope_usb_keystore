@@ -8,8 +8,8 @@ device through the File System Access API; Firefox reaches the same device throu
 native messaging host. The same physical keystore has been read by both, and neither
 browser profile holds key material.
 
-Branch `feature/usb-keystore`, **37 commits** ahead of `master` (`ffaa27af`). Unit
-suite: **671 tests, 40 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
+Branch `feature/usb-keystore`, **42 commits** ahead of `master` (`ffaa27af`). Unit
+suite: **678 tests, 42 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
 bundles build.
 
 ## 1. What has been verified on real hardware
@@ -190,7 +190,11 @@ Singular ones worth keeping:
   this machine used, not the key -- but the requirement is that no crypto information
   lives outside the device. The cache is now refused while a keystore is configured.
   Found by grepping the profile *after* believing the work was finished, which is the
-  argument for doing that at the end of every session rather than at the start.
+  argument for doing that at the end of every session rather than at the start. The
+  Security page was taught to disable the setting and explain why, but the passphrase
+  dialog's own "remember password" box was missed and kept offering itself, checked,
+  while caching nothing — the same class of bug as the one the fix set out to avoid,
+  one surface further on. Both now read the same answer from the controller.
 - **Errors thrown into nothing.** The keyring UI's shape for key operations is
   "swallow a cancelled password dialog, rethrow the rest", and in an async handler a
   rethrow is an unhandled rejection. Eight call sites do this. Harmless while writes

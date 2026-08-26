@@ -7,6 +7,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import * as l10n from '../../lib/l10n';
 import EventHandler from '../../lib/EventHandler';
+import {strings as usbStrings} from '../../modules/usb/strings';
 import SecurityBG from '../util/SecurityBG';
 import Spinner from '../util/Spinner';
 import Alert from '../util/Alert';
@@ -40,6 +41,9 @@ export default class PasswordDialog extends React.Component {
       userId: '',
       reason: '',
       cache: false,
+      // Set by the controller when keys live on a USB device: the cache refuses to
+      // run then, so the box must not offer something that will not happen.
+      cacheDisabled: false,
       password: '',
       waiting: true,
       showError: false,
@@ -106,12 +110,13 @@ export default class PasswordDialog extends React.Component {
     }, 1200);
   }
 
-  setInitData({keyId, userId, reason, cache}) {
+  setInitData({keyId, userId, reason, cache, cacheDisabled}) {
     this.setState({
       keyId,
       userId,
       reason: reason !== '' ? l10n.map[reason.toLowerCase()] : '',
       cache,
+      cacheDisabled: Boolean(cacheDisabled),
       waiting: false
     });
   }
@@ -176,9 +181,12 @@ export default class PasswordDialog extends React.Component {
                     </div>
                     <div>
                       <div className="custom-control custom-checkbox">
-                        <input type="checkbox" checked={this.state.cache} onChange={e => this.onChangeCache(e.target.checked)} className="custom-control-input" id="remember" />
+                        <input type="checkbox" checked={this.state.cache} disabled={this.state.cacheDisabled} onChange={e => this.onChangeCache(e.target.checked)} className="custom-control-input" id="remember" />
                         <label className="custom-control-label" htmlFor="remember">{l10n.map.pwd_dialog_cache_pwd}</label>
                       </div>
+                      {this.state.cacheDisabled && (
+                        <p className="text-muted small mb-0">{usbStrings.cache_unavailable}</p>
+                      )}
                     </div>
                   </div>
                   <div className="modal-footer justify-content-center border-0 p-4 flex-shrink-0">
