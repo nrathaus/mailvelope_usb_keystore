@@ -31,6 +31,20 @@ export const HOST_NAME = 'mailvelope_usb_keystore';
 /** Protocol version this client understands. */
 export const PROTOCOL_VERSION = 1;
 
+/**
+ * Bytes of file content per message.
+ *
+ * A browser drops a message from the host that exceeds 1 MB before the extension
+ * sees it, so reads have to arrive in pieces -- and a whole public keyring is one
+ * file here, so pieces are the normal case, not an edge case. Writes use the same
+ * size: Firefox would take 4 GB in one message, but Chrome caps that direction at
+ * 1 MB too, and one code path for both is worth more than the saved round trips.
+ *
+ * The value is deliberately under half the cap: armored key text is a newline every
+ * 64 characters, and JSON escaping turns each into two bytes.
+ */
+const CHUNK_BYTES = 384 * 1024;
+
 /** Host error codes that mean "the device is not there", rather than a fault. */
 const ABSENT_CODES = ['not_found', 'io_error', 'root_not_mounted'];
 
@@ -77,6 +91,40 @@ function sendNative(request) {
       maybePromise.then(resolve, reject);
     }
   });
+}
+
+/**
+ * Split a string into chunks of at most limit bytes of UTF-8, with the byte offset
+ * of each.
+ *
+ * Byte offsets rather than character counts because the host writes bytes and
+ * checks that each chunk starts where the last one ended. A character must not be
+ * split across chunks either: each piece is sent as JSON text, so half a character
+ * cannot survive the trip.
+ * @param {String} content
+ * @param {Number} limit
+ * @return {Array<{offset: Number, text: String}>} always at least one chunk, so an
+ *   empty file is still written
+ */
+function splitByBytes(content, limit) {
+  const bytes = new TextEncoder().encode(content);
+  if (bytes.length <= limit) {
+    return [{offset: 0, text: content}];
+  }
+  const decoder = new TextDecoder();
+  const chunks = [];
+  let start = 0;
+  while (start < bytes.length) {
+    let end = Math.min(start + limit, bytes.length);
+    // Continuation bytes are 10xxxxxx: walk back off the character that straddles
+    // the boundary and leave it for the next chunk.
+    while (end > start && end < bytes.length && (bytes[end] & 0xc0) === 0x80) {
+      end -= 1;
+    }
+    chunks.push({offset: start, text: decoder.decode(bytes.subarray(start, end))});
+    start = end;
+  }
+  return chunks;
 }
 
 export default class NativeBackend extends UsbBackend {
@@ -219,17 +267,65 @@ export default class NativeBackend extends UsbBackend {
     };
   }
 
+  /**
+   * Read a file, one chunk per message, following the host's byte offsets.
+   * @param {String} path
+   * @return {Promise<String>}
+   */
   async readFile(path) {
     this.requireRoot();
-    const {content} = await this.send({op: 'read', root: this.root, path});
-    return content;
+    const parts = [];
+    let offset = 0;
+    for (;;) {
+      const chunk = await this.send({
+        op: 'read', root: this.root, path, offset, maxBytes: CHUNK_BYTES
+      });
+      parts.push(chunk.content ?? '');
+      if (chunk.eof !== false) {
+        break;
+      }
+      if (!(chunk.nextOffset > offset)) {
+        // A host that reports neither the end of the file nor any progress would
+        // otherwise be read forever.
+        throw new MvError(
+          `The USB keystore helper stopped making progress reading ${path}`,
+          'USB_HOST_PROTOCOL'
+        );
+      }
+      offset = chunk.nextOffset;
+    }
+    return parts.join('');
   }
 
+  /**
+   * Write a file, one chunk per message.
+   *
+   * The host appends each chunk to a staging file and renames it into place on the
+   * one marked final, so the atomicity guarantee matches the File System Access
+   * backend: an interrupted write leaves the old file, plus the previous generation
+   * as .bak, and never a half-written primary. Chunks must therefore go in order,
+   * which is why this awaits each one.
+   * @param {String} path
+   * @param {String} content
+   */
   async writeFile(path, content) {
     this.requireRoot();
-    // The host stages, fsyncs and renames, keeping the previous generation as .bak,
-    // so the atomicity guarantee matches the File System Access backend.
-    await this.send({op: 'write', root: this.root, path, content});
+    if (typeof content !== 'string') {
+      // TextEncoder would happily encode the string "undefined" and the device would
+      // end up holding it, so refuse rather than write something plausible.
+      throw new MvError(`Refusing to write ${typeof content} to ${path}`, 'USB_HOST_PROTOCOL');
+    }
+    const chunks = splitByBytes(content, CHUNK_BYTES);
+    for (let i = 0; i < chunks.length; i++) {
+      await this.send({
+        op: 'write',
+        root: this.root,
+        path,
+        content: chunks[i].text,
+        offset: chunks[i].offset,
+        final: i === chunks.length - 1
+      });
+    }
   }
 
   async removeFile(path) {

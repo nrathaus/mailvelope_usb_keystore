@@ -8,9 +8,9 @@ device through the File System Access API; Firefox reaches the same device throu
 native messaging host. The same physical keystore has been read by both, and neither
 browser profile holds key material.
 
-Branch `feature/usb-keystore`, **37 commits** ahead of `master` (`ffaa27af`), working
-tree clean. Unit suite: **659 tests, 38 suites**. Native host: **17 tests**.
-`grunt eslint` clean. Both bundles build.
+Branch `feature/usb-keystore`, **37 commits** ahead of `master` (`ffaa27af`). Unit
+suite: **671 tests, 40 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
+bundles build.
 
 ## 1. What has been verified on real hardware
 
@@ -57,11 +57,22 @@ share. No install step.
 
 **Firefox** has no picker, and OPFS is not the device, so a native messaging host is
 the only route. `native-host/mailvelope_usb_keystore.py` — Python 3,
-dependency-free, ~300 lines, chosen for auditability: it runs outside the browser
+dependency-free, ~400 lines, chosen for auditability: it runs outside the browser
 sandbox with the user's filesystem authority and handles private keys, so being
 readable in one sitting matters more than elegance.
 
-Operations: `hello`, `listDevices`, `probe`, `read`, `write`, `remove`, `list`.
+Operations: `hello`, `listDevices`, `probe`, `read`, `write`, `remove`, `list`. The
+host lives in this repo and the manifest points at the checkout, so it and the
+extension always ship together — the protocol has no compatibility story and needs
+none.
+
+**Both directions are chunked**, because a browser drops a message *from* a native
+host that exceeds 1 MB before the extension sees it. That cap is the browser's, not
+the host's: it cannot be raised, only stayed under. A whole keyring is one file here,
+so `read` takes a byte offset and returns one 384 KB chunk plus `nextOffset`/`eof`,
+and `write` takes a byte offset and a `final` flag, appending chunks to one staging
+file that is fsynced and renamed into place on the last one. The atomicity guarantee
+is unchanged, and a write small enough to fit in one message still sends one message.
 
 Two things the host path does *better* than the in-browser one:
 
@@ -84,7 +95,7 @@ enforced *in the host*, never in the extension:
 - relative paths only, resolved through `realpath`, then re-checked to be inside the
   root — so `..` and symlinks cannot escape
 - writes restricted to seven known keystore filenames
-- reads and writes size-capped
+- reads and writes size-capped: 16 MB per file, 4 MB per inbound message
 
 All confinement tests are load-bearing.
 
@@ -142,7 +153,20 @@ heading said "Set up the device first" in every case it could render, though
 `isUnavailable()` requires an enabled keystore — so a profile without one never
 reaches it. Both now derive their text from `describeState()`.
 
-Four singular ones worth keeping:
+Singular ones worth keeping:
+
+- **A keyring larger than one native message could be neither saved nor read.**
+  Importing a public keyring exported with `gpg --export --armor` failed with
+  `message of 1392580 bytes exceeds the limit`: the whole keyring is a single
+  `public.asc`, rewritten in full on every change, and it went to the host in one
+  message. Splitting the import would only have deferred it — and the read direction
+  was worse, since the *browser* discards a host message over 1 MB, so a keyring that
+  size could never have been read back even if it had been written. Both directions
+  are chunked now. The same request also desynchronised the host for the rest of the
+  session: the refused message's body was left in the pipe, so the next read took
+  message bytes for a length header and every later request failed for an
+  unrelated-looking reason. Neither half was reachable in testing, because every test
+  keyring held one or two keys.
 
 - **Migration overwrote an existing keystore.** Migrating local keys onto a device
   that already held a keystore replaced it. Recovered by union from `.bak`; both keys
@@ -190,8 +214,10 @@ Weak spots, in the order worth addressing:
 
 - `KeyStorageSettings.js` **2%** — the largest untested component, and the one that
   performs provisioning. Runtime-exercised heavily, but a regression here is silent.
-- `NativeBackend.js` **55%** — the file operations are covered from the host side
-  only, so the two halves of the protocol are never tested against each other.
+- `NativeBackend.js` — the chunked read and write paths are now driven against a fake
+  host that implements the offset protocol (`NativeBackend.chunking.test.js`), so the
+  two halves finally meet. `probe`, `listDevices` and the absence codes are still
+  covered from the host side only.
 - `handleStore.js` **0%** — IndexedDB, needs a `fake-indexeddb` dependency that is
   not installed. Runtime-proven, since the whole Chrome path depends on it.
 - `UsbErrorToast.js` **5%**, `UsbStatusBanner.js` **17%** — the global rejection
