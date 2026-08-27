@@ -311,6 +311,17 @@ def op_read(request):
     requested = request.get('maxBytes')
     if isinstance(requested, int) and not isinstance(requested, bool) and 0 < requested < limit:
         limit = requested
+    # A request carrying neither field is asking for the whole file, from a client
+    # that will not follow nextOffset. Handing it the first chunk would answer with a
+    # prefix that looks like a complete file: a keyring read that way loses every key
+    # past the cut, silently, and the caller has no way to tell. This is not
+    # hypothetical -- an extension build from before chunked reads did exactly that,
+    # and a 412-key keyring came back as 132. Refuse instead.
+    if 'offset' not in request and 'maxBytes' not in request and size > limit:
+        raise ProtocolError(
+            'needs_chunked_read',
+            f'file of {size} bytes must be read in chunks; this request asked for all of it'
+        )
     with open(target, 'rb') as handle:
         handle.seek(offset)
         data = handle.read(limit)

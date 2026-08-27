@@ -107,15 +107,26 @@ class PathHandling(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = None
+        cls.skipped = 'no writable removable device mounted'
         response = one({'op': 'listDevices'})
         devices = response.get('result', {}).get('devices', [])
-        writable = [d for d in devices if d.get('writable')]
-        if writable:
-            cls.root = writable[0]['path']
+        for device in devices:
+            if not device.get('writable'):
+                continue
+            # Never a device that holds a real keystore. These tests write and delete
+            # files on whatever they are pointed at, and a stick carrying someone's
+            # only copy of their keys is not a test fixture. Use the scratch tmpfs
+            # device from the install notes instead.
+            if os.path.isdir(os.path.join(device['path'], 'mailvelope-keystore')):
+                cls.skipped = (f"{device['path']} holds a keystore; "
+                               'mount a scratch device for these tests')
+                continue
+            cls.root = device['path']
+            break
 
     def setUp(self):
         if not self.root:
-            self.skipTest('no writable removable device mounted')
+            self.skipTest(self.skipped)
 
     def test_rejects_traversal(self):
         for path in ('../../../../etc/passwd',
@@ -319,6 +330,23 @@ class Chunking(unittest.TestCase):
         self.assertEqual(chunk['bytesRead'], 2, 'should stop before the split character')
         self.assertFalse(chunk['eof'])
         self.assertEqual(self.read_all(max_bytes=3), content)
+
+    # The failure this actually caused: an extension build from before chunked reads
+    # asked for the whole file, got the first chunk, and showed a 412-key keyring as
+    # 132 keys -- with nothing anywhere reporting a problem.
+    def test_refuses_to_answer_a_whole_file_request_with_a_prefix(self):
+        self.write('x' * (host.CHUNK_BYTES + 1))
+        with self.assertRaises(host.ProtocolError) as caught:
+            host.op_read({'root': self.root, 'path': self.path})
+        self.assertEqual(caught.exception.code, 'needs_chunked_read')
+
+    # ...but a file that fits in one chunk has no prefix to hide, so the simple form
+    # of the request keeps working.
+    def test_serves_a_small_file_without_a_chunked_request(self):
+        self.write('small enough')
+        chunk = host.op_read({'root': self.root, 'path': self.path})
+        self.assertEqual(chunk['content'], 'small enough')
+        self.assertTrue(chunk['eof'])
 
     def test_reports_offsets_and_the_end_of_the_file(self):
         self.write('0123456789')

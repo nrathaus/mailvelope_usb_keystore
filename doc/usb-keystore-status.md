@@ -9,7 +9,7 @@ native messaging host. The same physical keystore has been read by both, and nei
 browser profile holds key material.
 
 Branch `feature/usb-keystore`, **42 commits** ahead of `master` (`ffaa27af`). Unit
-suite: **682 tests, 43 suites**. Native host: **35 tests**. `grunt eslint` clean. Both
+suite: **682 tests, 43 suites**. Native host: **37 tests**. `grunt eslint` clean. Both
 bundles build.
 
 ## 1. What has been verified on real hardware
@@ -129,6 +129,11 @@ sudo mount -t tmpfs -o size=16M,uid=$(id -u),gid=$(id -g) tmpfs /run/media/$USER
 It satisfies the host's mount-point requirement, `umount` simulates removal, and
 remounting `-o ro` simulates write protection.
 
+`native-host/test_host.py` needs one of these: its device tests write and delete
+files on whatever removable device it finds, so it skips any device that already
+holds a `mailvelope-keystore` directory rather than treating someone's keys as a
+fixture.
+
 ## 4. Bugs found by running it, not by testing it
 
 Around twenty, almost none caught by the test suite or by review. They cluster, and
@@ -155,6 +160,23 @@ heading said "Set up the device first" in every case it could render, though
 reaches it. Both now derive their text from `describeState()`.
 
 Singular ones worth keeping:
+
+- **A new helper and an old extension truncated a keyring in silence.** The helper is
+  a file on disk that the manifest points at, so pulling the branch updates it
+  immediately; the extension is a bundle that only changes when someone runs `grunt`.
+  For a while both were true at once, and the pair degraded quietly in both
+  directions: the old bundle's write sent a whole 1.3 MB keyring in one message,
+  which the new helper accepted because its inbound cap had been raised — so the
+  import error disappeared *without a rebuild*, which is exactly what makes the state
+  hard to notice. Its read then asked for the whole file and got the first 384 KiB
+  chunk, and 412 keys showed up as 132. The reported symptom was "keys from after
+  2018 are missing", because a `gpg --export` is roughly chronological and the cut
+  fell mid-keyring. The helper now refuses a whole-file request for a file that needs
+  chunks (`needs_chunked_read`) rather than answering with a prefix: never hand back
+  part of a file to a caller that asked for all of it. **The protocol-version check
+  exists for exactly this and was deliberately not used**, on the reasoning that host
+  and extension ship together from one repo — true of the source, not of the built
+  bundle.
 
 - **A reloaded keyring was visible while it was still filling up.** Reloading a
   keyring means `keystore.clear()` then `keystore.load()`, at both call sites. With
