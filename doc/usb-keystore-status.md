@@ -9,7 +9,7 @@ native messaging host. The same physical keystore has been read by both, and nei
 browser profile holds key material.
 
 Branch `feature/usb-keystore`, **42 commits** ahead of `master` (`ffaa27af`). Unit
-suite: **682 tests, 43 suites**. Native host: **37 tests**. `grunt eslint` clean. Both
+suite: **684 tests, 43 suites**. Native host: **37 tests**. `grunt eslint` clean. Both
 bundles build.
 
 ## 1. What has been verified on real hardware
@@ -177,6 +177,15 @@ Singular ones worth keeping:
   exists for exactly this and was deliberately not used**, on the reasoning that host
   and extension ship together from one repo — true of the source, not of the built
   bundle.
+
+  The other half of the lesson is that nothing in the UI could have shown it. A
+  keyring that arrives in part looks like a smaller keyring: the key list, the badge
+  and the device status were all consistent with it. Key Storage now reports the keys
+  on the device beside the keys the extension actually loaded, and says so in red when
+  they differ — the one number that makes a truncated read self-evident. It costs a
+  full read of the key files, so the settings page asks for it when the device state
+  changes rather than on its one-second poll (which had been re-running the whole
+  diagnostics panel, and the local-storage scan with it, every second).
 
 - **A reloaded keyring was visible while it was still filling up.** Reloading a
   keyring means `keystore.clear()` then `keystore.load()`, at both call sites. With

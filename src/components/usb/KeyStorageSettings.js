@@ -47,7 +47,14 @@ export default class KeyStorageSettings extends React.Component {
   componentDidMount() {
     this.unsubscribe = subscribeStatus(port, status => {
       this.setState({status});
-      this.refreshDetails(status);
+      // Only on a change of state, not on every tick. This page polls the device
+      // once a second, and the details it loads now include a count of the keys on
+      // the device -- which means reading the key files. Doing that every second
+      // would keep a removable device busy for no news.
+      if (status?.state !== this.detailsFor) {
+        this.detailsFor = status?.state;
+        this.refreshDetails(status);
+      }
     });
   }
 
@@ -61,6 +68,7 @@ export default class KeyStorageSettings extends React.Component {
    * @param {Object} status
    */
   async refreshDetails(status) {
+    this.detailsFor = status?.state;
     try {
       this.setState({local: await port.send('usb-inspect-local')});
     } catch (e) {
@@ -252,6 +260,43 @@ export default class KeyStorageSettings extends React.Component {
     return seconds < 2 ? strings.status_checked_now : strings.status_checked_ago.replace('$1', String(seconds));
   }
 
+  /**
+   * What the device holds, and what the extension actually loaded from it.
+   *
+   * Two numbers rather than one: they are normally the same, and when they are not,
+   * the difference is the whole story. A keyring that arrived in part looks like a
+   * smaller keyring everywhere else in the UI.
+   * @return {React.Node}
+   */
+  renderKeyCounts() {
+    const keyrings = this.state.diagnostics?.keyrings;
+    if (!keyrings) {
+      return <span className="text-muted">{strings.status_keys_unknown}</span>;
+    }
+    const sum = (which, type) => keyrings.reduce((total, keyring) => total + (keyring[which]?.[type] ?? 0), 0);
+    const onDevice = {publicKeys: sum('onDevice', 'publicKeys'), privateKeys: sum('onDevice', 'privateKeys')};
+    // A keyring the extension has not loaded at all reports null rather than zero, and
+    // counting it as zero would raise a false alarm about an incomplete read.
+    const counted = keyrings.filter(keyring => keyring.loaded);
+    const loadedTotal = counted.reduce((total, keyring) => total + keyring.loaded.publicKeys + keyring.loaded.privateKeys, 0);
+    const deviceTotal = onDevice.publicKeys + onDevice.privateKeys;
+    const incomplete = counted.length === keyrings.length && loadedTotal < deviceTotal;
+    return (
+      <>
+        {strings.status_keys_counts
+        .replace('$1', String(onDevice.publicKeys))
+        .replace('$2', String(onDevice.privateKeys))}
+        {incomplete && (
+          <span className="d-block text-danger">
+            {strings.status_keys_incomplete
+            .replace('$1', String(loadedTotal))
+            .replace('$2', String(deviceTotal))}
+          </span>
+        )}
+      </>
+    );
+  }
+
   renderDevicePanel() {
     const {status, diagnostics, busy} = this.state;
     const configured = Boolean(status?.enabled);
@@ -282,7 +327,13 @@ export default class KeyStorageSettings extends React.Component {
               {status.keystoreId && (
                 <>
                   <dt className="col-sm-4">{strings.status_keystore_id}</dt>
-                  <dd className="col-sm-8 mb-0"><code>{status.keystoreId}</code></dd>
+                  <dd className="col-sm-8 mb-1"><code>{status.keystoreId}</code></dd>
+                </>
+              )}
+              {status.state === USB_STATE.READY && (
+                <>
+                  <dt className="col-sm-4">{strings.status_keys}</dt>
+                  <dd className="col-sm-8 mb-0">{this.renderKeyCounts()}</dd>
                 </>
               )}
             </dl>
@@ -332,7 +383,15 @@ export default class KeyStorageSettings extends React.Component {
           {diagnostics?.keyrings?.length > 0 && (
             <ul className="list-unstyled small text-muted mt-3 mb-0">
               {diagnostics.keyrings.map(keyring => (
-                <li key={keyring.dir}><code>{keyring.dir}</code>: {keyring.files.join(', ')}</li>
+                <li key={keyring.dir}>
+                  <code>{keyring.dir}</code>: {keyring.files.join(', ')}
+                  {keyring.onDevice && (
+                    <span className="d-block text-muted">
+                      {`device ${keyring.onDevice.publicKeys} public / ${keyring.onDevice.privateKeys} pairs`}
+                      {keyring.loaded && ` · loaded ${keyring.loaded.publicKeys} public / ${keyring.loaded.privateKeys} pairs`}
+                    </span>
+                  )}
+                </li>
               ))}
             </ul>
           )}

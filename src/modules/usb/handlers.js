@@ -10,6 +10,37 @@
 
 import * as state from './state';
 import * as provision from './provision';
+import {encodeKeyringId} from './router';
+import {getAll as getAllKeyrings} from '../keyring';
+
+/**
+ * How many keys the running extension is holding, per keyring directory.
+ *
+ * Counted here rather than in provision.js, which the settings page imports for the
+ * directory picker and which therefore must stay clear of the keyring subsystem.
+ *
+ * Raced against a timeout for the same reason the other keyring callers are:
+ * getAll() waits on keyring initialisation, and diagnostics must answer regardless.
+ * @return {Promise<Object>}
+ */
+async function loadedKeyCounts() {
+  const counts = {};
+  try {
+    const keyrings = await Promise.race([
+      getAllKeyrings(),
+      new Promise(resolve => setTimeout(() => resolve(null), 2000))
+    ]);
+    for (const keyring of keyrings ?? []) {
+      counts[encodeKeyringId(keyring.id)] = {
+        publicKeys: keyring.keystore.publicKeys.keys.length,
+        privateKeys: keyring.keystore.privateKeys.keys.length
+      };
+    }
+  } catch (e) {
+    // Diagnostics degrade to "not counted" rather than failing the whole panel.
+  }
+  return counts;
+}
 
 /**
  * Attach USB keystore events to a controller and forward state changes to its port.
@@ -27,7 +58,7 @@ export function registerUsbHandlers(controller) {
   // authorised.
   controller.on('usb-provision', ({label, adopt} = {}) => provision.provision({label, adopt}));
   controller.on('usb-disable', () => provision.disable());
-  controller.on('usb-diagnostics', () => provision.diagnostics());
+  controller.on('usb-diagnostics', async () => provision.diagnostics({loaded: await loadedKeyCounts()}));
   // Native-host only: Firefox cannot open a directory picker, so it offers the
   // mounted devices the helper reports instead.
   controller.on('usb-list-devices', () => provision.listDevices());

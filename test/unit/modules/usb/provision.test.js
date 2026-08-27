@@ -433,7 +433,41 @@ describe('usb/provision', () => {
       mocks.listDir.mockImplementation(path =>
         Promise.resolve(path.endsWith('/keyrings') ? ['6162', 'not-hex'] : ['private.asc']));
       const result = await provision.diagnostics();
-      expect(result.keyrings).toEqual([{dir: '6162', files: ['private.asc']}]);
+      expect(result.keyrings).toEqual([{
+        dir: '6162',
+        files: ['private.asc'],
+        onDevice: {publicKeys: 0, privateKeys: 0},
+        loaded: null
+      }]);
+    });
+
+    // The number the settings page shows: what the device holds, next to what the
+    // extension actually loaded. A read that returns part of a file leaves a keyring
+    // that looks ordinary but short, and this is the only place the two are compared.
+    it('counts the keys on the device and the keys held in memory', async () => {
+      await bootReady();
+      seedDevice({
+        'mailvelope-keystore/keyrings/6162/public.asc': `${PUB}\n${PUB}`,
+        'mailvelope-keystore/keyrings/6162/private.asc': PRIV
+      });
+      mocks.listDir.mockImplementation(path =>
+        Promise.resolve(path.endsWith('/keyrings') ? ['6162'] : ['public.asc', 'private.asc']));
+      const result = await provision.diagnostics({loaded: {6162: {publicKeys: 1, privateKeys: 1}}});
+      expect(result.keyrings[0].onDevice).toEqual({publicKeys: 2, privateKeys: 1});
+      expect(result.keyrings[0].loaded).toEqual({publicKeys: 1, privateKeys: 1});
+    });
+
+    // A keyring file that is not there yet is not a failure, and must not read as a
+    // shortfall against what is loaded.
+    it('counts a missing key file as no keys rather than failing', async () => {
+      await bootReady();
+      mocks.listDir.mockImplementation(path =>
+        Promise.resolve(path.endsWith('/keyrings') ? ['6162'] : []));
+      const result = await provision.diagnostics();
+      expect(result.keyrings[0].onDevice).toEqual({publicKeys: 0, privateKeys: 0});
+      // detail carries the status's own null when nothing went wrong; a message here
+      // would mean the missing file had been treated as a read failure.
+      expect(result.detail).toBeFalsy();
     });
 
     it('reports state without touching the device when it is not ready', async () => {

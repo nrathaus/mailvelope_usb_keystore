@@ -7,6 +7,10 @@
  * listeners for the life of the service worker.
  */
 
+// The keyring subsystem is only here to count the keys already in memory, and
+// importing it for real drags the whole crypto stack into the test.
+jest.mock('../../../../src/modules/keyring', () => ({getAll: jest.fn(() => Promise.resolve([]))}));
+
 jest.mock('../../../../src/modules/usb/provision', () => ({
   reprobe: jest.fn(),
   provision: jest.fn(),

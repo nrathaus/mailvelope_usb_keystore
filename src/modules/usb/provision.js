@@ -400,10 +400,41 @@ export async function reprobe() {
 }
 
 /**
+ * Count the armored keys in one file on the device.
+ * @param {UsbBackend} backend
+ * @param {String} path
+ * @return {Promise<Number>} 0 for a file that is not there
+ */
+async function countKeysOnDevice(backend, path) {
+  try {
+    return router.deserialize(await backend.readFile(path), 'asc').length;
+  } catch (e) {
+    if (e instanceof NotFoundError) {
+      return 0;
+    }
+    throw e;
+  }
+}
+
+/**
  * Diagnostics for the settings page: what is on the device right now.
+ *
+ * Reports the keys on the device alongside the keys the extension actually loaded,
+ * because the gap between those two numbers is the failure this feature is most
+ * exposed to and the hardest to notice. A read that returns part of a file leaves a
+ * keyring that looks ordinary -- just shorter -- and nothing else in the UI can tell
+ * you that 132 of 412 keys arrived.
+ *
+ * It costs a full read of the key files, so it is not something to run on a timer;
+ * the settings page asks for it when the device state changes.
+ *
+ * The loaded counts are passed in rather than read here: this module is imported by
+ * the settings page for the directory picker, and importing the keyring would drag
+ * the whole crypto stack into the app bundle with it.
+ * @param {Object} [loaded] - keys held in memory, keyed by encoded keyring directory
  * @return {Promise<Object>}
  */
-export async function diagnostics() {
+export async function diagnostics({loaded = {}} = {}) {
   const status = state.getStatus();
   const config = await state.getConfig();
   const result = {...status, label: config?.label ?? null, provisioned: config?.provisioned ?? null, keyrings: []};
@@ -416,8 +447,17 @@ export async function diagnostics() {
       if (!/^[0-9a-f]+$/.test(dir)) {
         continue;
       }
-      const files = await backend.listDir(`${DEVICE_ROOT}/${KEYRINGS_DIR}/${dir}`);
-      result.keyrings.push({dir, files});
+      const base = `${DEVICE_ROOT}/${KEYRINGS_DIR}/${dir}`;
+      const files = await backend.listDir(base);
+      result.keyrings.push({
+        dir,
+        files,
+        onDevice: {
+          publicKeys: await countKeysOnDevice(backend, `${base}/public.asc`),
+          privateKeys: await countKeysOnDevice(backend, `${base}/private.asc`)
+        },
+        loaded: loaded[dir] ?? null
+      });
     }
   } catch (e) {
     result.detail = e.message;

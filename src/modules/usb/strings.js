@@ -42,6 +42,15 @@ export const strings = {
   status_folder_unknown: 'not selected yet',
   status_path_note: 'Keys are kept in a “mailvelope-keystore” folder inside it. Browsers only report the folder name, not its full path.',
   status_keystore_id: 'Keystore ID',
+  status_keys: 'Keys',
+  // "$1 public keys, $2 key pairs". Shown whenever the device is READY, because the
+  // number of keys the extension is holding is the one thing no other part of the UI
+  // reports -- and a keyring that arrived incomplete looks exactly like a small one.
+  status_keys_counts: '$1 public, $2 key pairs',
+  // Shown when fewer keys were loaded than the device holds. Always a fault: reads
+  // are whole-file, so a shortfall means part of the keyring never arrived.
+  status_keys_incomplete: 'Only $1 of $2 keys on the device were loaded. Part of the keyring did not arrive — if the extension was rebuilt recently, reload it; otherwise this is a read failure worth reporting.',
+  status_keys_unknown: 'not counted yet',
   status_ready: 'Connected and ready.',
   status_not_configured: 'No USB keystore has been set up.',
   status_unsupported: 'This browser cannot access a USB keystore. Chrome or another Chromium browser is required; Firefox support needs the Mailvelope native helper.',
